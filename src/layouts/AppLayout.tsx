@@ -7,7 +7,7 @@ import {
   PlusCircle,
 } from "lucide-react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuth } from "../hooks/useAuth";
 
 export function AppLayout() {
   const navigate = useNavigate();

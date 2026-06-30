@@ -1,33 +1,40 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
+import type { Demanda } from "../types/domain";
 
-type Demanda = {
-  id: string;
-  titulo: string;
-  descricao: string | null;
-  area: string;
-  prioridade: string;
-  status: string;
-  prazo_finalizacao: string | null;
-  projetos: {
-    nome: string;
-  }[] | null;
+type DemandaComProjeto = Pick<
+  Demanda,
+  "id" | "titulo" | "descricao" | "area" | "prioridade" | "status" | "prazo_finalizacao"
+> & {
+  projetos:
+    | {
+        nome: string;
+      }
+    | {
+        nome: string;
+      }[]
+    | null;
 };
 
 export function MinhasDemandas() {
-  const [demandas, setDemandas] = useState<Demanda[]>([]);
+  const { profile } = useAuth();
+  const [demandas, setDemandas] = useState<DemandaComProjeto[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
 
-  useEffect(() => {
-    carregarDemandas();
-  }, []);
+  const carregarDemandas = useCallback(async () => {
+    if (!profile) {
+      return;
+    }
 
-  async function carregarDemandas() {
     setLoading(true);
+    setErrorMessage("");
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("demandas")
-      .select(`
+      .select(
+        `
         id,
         titulo,
         descricao,
@@ -38,12 +45,28 @@ export function MinhasDemandas() {
         projetos (
           nome
         )
-      `)
+      `
+      )
+      .eq("colaborador_id", profile.id)
       .order("created_at", { ascending: false });
 
-    setDemandas((data as Demanda[]) ?? []);
+    if (error) {
+      setErrorMessage("Não foi possível carregar suas demandas.");
+      setLoading(false);
+      return;
+    }
+
+    setDemandas((data as DemandaComProjeto[]) ?? []);
     setLoading(false);
-  }
+  }, [profile]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void carregarDemandas();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [carregarDemandas]);
 
   return (
     <div>
@@ -55,6 +78,8 @@ export function MinhasDemandas() {
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
           <p className="p-6 text-sm text-slate-500">Carregando demandas...</p>
+        ) : errorMessage ? (
+          <p className="p-6 text-sm text-red-600">{errorMessage}</p>
         ) : demandas.length === 0 ? (
           <p className="p-6 text-sm text-slate-500">
             Nenhuma demanda encontrada.
@@ -69,13 +94,11 @@ export function MinhasDemandas() {
                       {demanda.titulo}
                     </h2>
                     <p className="mt-1 text-sm text-slate-500">
-                      {demanda.projetos?.[0]?.nome ?? "Projeto não informado"}
+                      {getProjetoNome(demanda.projetos)}
                     </p>
                   </div>
 
-                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                    {demanda.status}
-                  </span>
+                  <StatusBadge status={demanda.status} />
                 </div>
 
                 {demanda.descricao && (
@@ -93,7 +116,7 @@ export function MinhasDemandas() {
                   </span>
                   {demanda.prazo_finalizacao && (
                     <span className="rounded-full bg-slate-100 px-3 py-1">
-                      Prazo: {demanda.prazo_finalizacao}
+                      Prazo: {formatDate(demanda.prazo_finalizacao)}
                     </span>
                   )}
                 </div>
@@ -104,4 +127,46 @@ export function MinhasDemandas() {
       </div>
     </div>
   );
+}
+
+function getProjetoNome(
+  projeto:
+    | {
+        nome: string;
+      }
+    | {
+        nome: string;
+      }[]
+    | null
+) {
+  if (Array.isArray(projeto)) {
+    return projeto[0]?.nome ?? "Projeto não informado";
+  }
+
+  return projeto?.nome ?? "Projeto não informado";
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    pendente: "bg-amber-100 text-amber-700",
+    "em andamento": "bg-blue-100 text-blue-700",
+    concluido: "bg-emerald-100 text-emerald-700",
+    cancelado: "bg-red-100 text-red-700",
+  };
+
+  return (
+    <span
+      className={`rounded-full px-3 py-1 text-xs font-medium ${
+        colors[status] ?? "bg-slate-100 text-slate-700"
+      }`}
+    >
+      {status}
+    </span>
+  );
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString("pt-BR", {
+    timeZone: "UTC",
+  });
 }

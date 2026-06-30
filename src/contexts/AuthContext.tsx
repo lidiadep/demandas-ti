@@ -1,40 +1,23 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { supabase } from "../lib/supabase";
+import { isSupabaseConfigured, supabase } from "../lib/supabase";
+import { AuthContext } from "./auth";
+import type { Profile } from "../types/domain";
 
-type Profile = {
-  id: string;
-  user_id: string;
-  nome: string;
-  email: string;
-  role: "COLABORADOR" | "GESTOR";
-  ativo: boolean;
-};
-
-type AuthContextData = {
-  user: User | null;
-  profile: Profile | null;
-  loading: boolean;
-  isGestor: boolean;
-  isColaborador: boolean;
-  signOut: () => Promise<void>;
-};
-
-const AuthContext = createContext<AuthContextData>({} as AuthContextData);
-
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(isSupabaseConfigured);
 
   async function loadProfile(userId: string) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("profiles")
       .select("id, user_id, nome, email, role, ativo")
       .eq("user_id", userId)
       .single();
 
-    setProfile(data as Profile);
+    setProfile(error ? null : (data as Profile));
   }
 
   async function signOut() {
@@ -44,6 +27,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      return;
+    }
+
     async function loadSession() {
       const { data } = await supabase.auth.getSession();
 
@@ -95,8 +82,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  return useContext(AuthContext);
 }

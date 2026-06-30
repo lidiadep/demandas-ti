@@ -1,35 +1,20 @@
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Calendar, FolderKanban, User, Users } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
+import type { Cliente, Demanda, Profile, Projeto } from "../types/domain";
 
-type Projeto = {
-  id: string;
-  nome: string;
-  descricao: string | null;
-  status: string;
-  cliente_id: string;
-};
+type ProfileResumo = Pick<Profile, "id" | "nome">;
 
-type Cliente = {
-  id: string;
-  nome: string;
-};
+const areas = ["produto", "marketing", "desenvolvimento", "qa", "suporte"];
 
-type Demanda = {
-  id: string;
-  titulo: string;
-  descricao: string | null;
-  area: string;
-  prioridade: string;
-  status: string;
-  prazo_finalizacao: string | null;
-  colaborador_id: string;
-};
-
-type Profile = {
-  id: string;
-  nome: string;
+const areaLabels: Record<string, string> = {
+  produto: "Produto",
+  marketing: "Marketing",
+  desenvolvimento: "Desenvolvimento",
+  qa: "QA",
+  suporte: "Suporte",
 };
 
 export function ProjetoDetalhes() {
@@ -38,71 +23,108 @@ export function ProjetoDetalhes() {
   const [projeto, setProjeto] = useState<Projeto | null>(null);
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [demandas, setDemandas] = useState<Demanda[]>([]);
-  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [profiles, setProfiles] = useState<ProfileResumo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
 
-  useEffect(() => {
-    carregarDados();
-  }, [id]);
-
-  async function carregarDados() {
-    if (!id) return;
-
-    setLoading(true);
-
-    const { data: projetoData } = await supabase
-      .from("projetos")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (projetoData) {
-      setProjeto(projetoData as Projeto);
-
-      const { data: clienteData } = await supabase
-        .from("clientes")
-        .select("*")
-        .eq("id", projetoData.cliente_id)
-        .single();
-
-      setCliente((clienteData as Cliente) ?? null);
+  const carregarDados = useCallback(async () => {
+    if (!id) {
+      setLoading(false);
+      return;
     }
 
-    const { data: demandasData } = await supabase
-      .from("demandas")
-      .select("*")
-      .eq("projeto_id", id)
-      .order("created_at", { ascending: false });
+    setLoading(true);
+    setErrorMessage("");
 
-    const { data: profilesData } = await supabase
-      .from("profiles")
-      .select("id,nome");
+    const [projetoRes, demandasRes, profilesRes] = await Promise.all([
+      supabase
+        .from("projetos")
+        .select("id,nome,descricao,status,cliente_id")
+        .eq("id", id)
+        .single(),
+      supabase
+        .from("demandas")
+        .select(
+          "id,titulo,descricao,area,prioridade,status,prazo_finalizacao,colaborador_id,created_at,projeto_id"
+        )
+        .eq("projeto_id", id)
+        .order("created_at", { ascending: false }),
+      supabase.from("profiles").select("id,nome"),
+    ]);
 
-    setDemandas((demandasData as Demanda[]) ?? []);
-    setProfiles((profilesData as Profile[]) ?? []);
+    if (projetoRes.error) {
+      setProjeto(null);
+      setLoading(false);
+      return;
+    }
+
+    const projetoData = projetoRes.data as Projeto;
+    const { data: clienteData, error: clienteError } = await supabase
+      .from("clientes")
+      .select("id,nome")
+      .eq("id", projetoData.cliente_id)
+      .single();
+
+    if (demandasRes.error || profilesRes.error || clienteError) {
+      setErrorMessage("Não foi possível carregar os detalhes do projeto.");
+      setLoading(false);
+      return;
+    }
+
+    setProjeto(projetoData);
+    setCliente((clienteData as Cliente) ?? null);
+    setDemandas((demandasRes.data as Demanda[]) ?? []);
+    setProfiles((profilesRes.data as ProfileResumo[]) ?? []);
     setLoading(false);
-  }
+  }, [id]);
 
-  const profilesMap = new Map(profiles.map((p) => [p.id, p]));
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void carregarDados();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [carregarDados]);
+
+  const profilesMap = useMemo(
+    () => new Map(profiles.map((profile) => [profile.id, profile])),
+    [profiles]
+  );
 
   const concluidas = demandas.filter((d) => d.status === "concluido").length;
-
   const progresso =
     demandas.length === 0 ? 0 : Math.round((concluidas / demandas.length) * 100);
 
-  const porArea = useMemo(() => {
-    const areas = ["produto", "marketing", "desenvolvimento", "qa", "suporte"];
+  const porArea = useMemo(
+    () =>
+      areas
+        .map((area) => ({
+          area,
+          total: demandas.filter((demanda) => demanda.area === area).length,
+        }))
+        .filter((item) => item.total > 0),
+    [demandas]
+  );
 
-    return areas
-      .map((area) => ({
-        area,
-        total: demandas.filter((d) => d.area === area).length,
-      }))
-      .filter((item) => item.total > 0);
+  const prazoMaisProximo = useMemo(() => {
+    const prazos = demandas
+      .map((demanda) => demanda.prazo_finalizacao)
+      .filter((prazo): prazo is string => Boolean(prazo))
+      .sort();
+
+    return prazos[0] ?? null;
   }, [demandas]);
 
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando projeto...</p>;
+  }
+
+  if (errorMessage) {
+    return (
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+        {errorMessage}
+      </div>
+    );
   }
 
   if (!projeto) {
@@ -145,7 +167,7 @@ export function ProjetoDetalhes() {
         <InfoItem
           icon={<FolderKanban size={20} />}
           label="Área principal"
-          value={porArea[0]?.area ?? "-"}
+          value={areaLabels[porArea[0]?.area] ?? "-"}
         />
 
         <InfoItem
@@ -161,9 +183,7 @@ export function ProjetoDetalhes() {
         <InfoItem
           icon={<Calendar size={20} />}
           label="Prazo mais próximo"
-          value={
-            demandas.find((d) => d.prazo_finalizacao)?.prazo_finalizacao ?? "-"
-          }
+          value={formatDate(prazoMaisProximo)}
         />
 
         <InfoItem
@@ -173,85 +193,69 @@ export function ProjetoDetalhes() {
         />
       </section>
 
-<section className="grid grid-cols-2 gap-5">
-  <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-    <h2 className="font-semibold text-slate-950">Matriz de Intensidade</h2>
+      <section className="grid grid-cols-2 gap-5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="font-semibold text-slate-950">Matriz de Intensidade</h2>
 
-    <RadarChart
-      items={[
-        {
-          label: "Produto",
-          value: demandas.filter((d) => d.area === "produto").length,
-        },
-        {
-          label: "Desenvolvimento",
-          value: demandas.filter((d) => d.area === "desenvolvimento").length,
-        },
-        {
-          label: "QA",
-          value: demandas.filter((d) => d.area === "qa").length,
-        },
-        {
-          label: "Suporte",
-          value: demandas.filter((d) => d.area === "suporte").length,
-        },
-        {
-          label: "Marketing",
-          value: demandas.filter((d) => d.area === "marketing").length,
-        },
-      ]}
-    />
-  </div>
-
-  <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-    <h2 className="font-semibold text-slate-950">Resumo analítico</h2>
-
-    <div className="mt-5 grid grid-cols-3 gap-3">
-      {porArea.map((item) => (
-        <div
-          key={item.area}
-          className="rounded-2xl border border-slate-200 p-4"
-        >
-          <p className="capitalize text-sm text-slate-500">{item.area}</p>
-          <p className="mt-1 text-xl font-bold text-slate-950">
-            {item.total}
-          </p>
+          <RadarChart
+            items={areas.map((area) => ({
+              label: areaLabels[area],
+              value: demandas.filter((demanda) => demanda.area === area).length,
+            }))}
+          />
         </div>
-      ))}
-    </div>
 
-    <h3 className="mt-8 text-xs font-bold uppercase tracking-wide text-slate-500">
-      Demandas
-    </h3>
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="font-semibold text-slate-950">Resumo analítico</h2>
 
-    <div className="mt-4 space-y-3">
-      {demandas.slice(0, 5).map((demanda) => (
-        <div
-          key={demanda.id}
-          className="flex items-center justify-between rounded-2xl border border-slate-200 p-4"
-        >
-          <div>
-            <p className="font-semibold text-slate-900">
-              {demanda.titulo}
-            </p>
-
-            <div className="mt-2 flex items-center gap-2">
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium capitalize text-slate-600">
-                {demanda.area}
-              </span>
-
-              <DemandStatusBadge status={demanda.status} />
-            </div>
+          <div className="mt-5 grid grid-cols-3 gap-3">
+            {porArea.map((item) => (
+              <div
+                key={item.area}
+                className="rounded-2xl border border-slate-200 p-4"
+              >
+                <p className="text-sm text-slate-500">
+                  {areaLabels[item.area] ?? item.area}
+                </p>
+                <p className="mt-1 text-xl font-bold text-slate-950">
+                  {item.total}
+                </p>
+              </div>
+            ))}
           </div>
 
-          <PriorityBadge prioridade={demanda.prioridade} />
-        </div>
-      ))}
-    </div>
-  </div>
-</section>
+          <h3 className="mt-8 text-xs font-bold uppercase tracking-wide text-slate-500">
+            Demandas
+          </h3>
 
-      <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="mt-4 space-y-3">
+            {demandas.slice(0, 5).map((demanda) => (
+              <div
+                key={demanda.id}
+                className="flex items-center justify-between rounded-2xl border border-slate-200 p-4"
+              >
+                <div>
+                  <p className="font-semibold text-slate-900">
+                    {demanda.titulo}
+                  </p>
+
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                      {areaLabels[demanda.area] ?? demanda.area}
+                    </span>
+
+                    <DemandStatusBadge status={demanda.status} />
+                  </div>
+                </div>
+
+                <PriorityBadge prioridade={demanda.prioridade} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 p-6">
           <h2 className="text-xl font-semibold text-slate-950">Demandas</h2>
           <p className="mt-1 text-sm text-slate-500">
@@ -271,7 +275,7 @@ export function ProjetoDetalhes() {
                 </h3>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  {demanda.area} ·{" "}
+                  {areaLabels[demanda.area] ?? demanda.area} ·{" "}
                   {profilesMap.get(demanda.colaborador_id)?.nome ?? "-"}
                 </p>
               </div>
@@ -280,11 +284,17 @@ export function ProjetoDetalhes() {
                 <PriorityBadge prioridade={demanda.prioridade} />
                 <DemandStatusBadge status={demanda.status} />
                 <span className="text-sm text-slate-500">
-                  {demanda.prazo_finalizacao ?? "-"}
+                  {formatDate(demanda.prazo_finalizacao)}
                 </span>
               </div>
             </div>
           ))}
+
+          {demandas.length === 0 && (
+            <p className="p-6 text-sm text-slate-500">
+              Nenhuma demanda vinculada a este projeto.
+            </p>
+          )}
         </div>
       </section>
     </div>
@@ -296,22 +306,32 @@ function InfoItem({
   label,
   value,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="mb-4 text-blue-600">{icon}</div>
       <p className="text-xs font-semibold uppercase text-slate-500">{label}</p>
-      <p className="mt-2 font-bold capitalize text-slate-950">{value}</p>
+      <p className="mt-2 font-bold text-slate-950">{value}</p>
     </div>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    ATIVO: "bg-emerald-100 text-emerald-700",
+    INATIVO: "bg-slate-100 text-slate-700",
+    CONCLUIDO: "bg-blue-100 text-blue-700",
+  };
+
   return (
-    <span className="rounded-full bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-700">
+    <span
+      className={`rounded-full px-4 py-2 text-sm font-semibold ${
+        colors[status] ?? "bg-slate-100 text-slate-700"
+      }`}
+    >
       {status}
     </span>
   );
@@ -457,4 +477,14 @@ function RadarChart({
       </svg>
     </div>
   );
+}
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return "-";
+  }
+
+  return new Date(value).toLocaleDateString("pt-BR", {
+    timeZone: "UTC",
+  });
 }

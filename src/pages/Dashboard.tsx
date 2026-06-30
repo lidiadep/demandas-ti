@@ -1,4 +1,5 @@
 import {
+  ArrowRight,
   Calendar,
   Download,
   FileText,
@@ -7,88 +8,124 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
-import { useAuth } from "../contexts/AuthContext";
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight } from "lucide-react";
+import { KpiCard } from "../components/dashboard/KpiCards";
+import { useAuth } from "../hooks/useAuth";
+import { supabase } from "../lib/supabase";
+import type { Cliente, Demanda, Profile, Projeto } from "../types/domain";
 
-type Demanda = {
-  id: string;
-  titulo: string;
-  area: string;
-  prioridade: string;
-  status: string;
-  prazo_finalizacao: string | null;
-  created_at: string;
-  projeto_id: string;
-  colaborador_id: string;
-};
+type ProjetoResumo = Pick<Projeto, "id" | "cliente_id" | "nome" | "status">;
+type ColaboradorResumo = Pick<Profile, "id" | "nome" | "role" | "ativo">;
 
-type Projeto = {
-  id: string;
-  cliente_id: string;
-  nome: string;
-  status: string;
-};
+const areas = ["produto", "marketing", "desenvolvimento", "qa", "suporte"];
 
-type Cliente = {
-  id: string;
-  nome: string;
-};
-
-type Colaborador = {
-  id: string;
-  nome: string;
-  role: string;
+const areaLabels: Record<string, string> = {
+  produto: "Produto",
+  marketing: "Marketing",
+  desenvolvimento: "Desenvolvimento",
+  qa: "QA",
+  suporte: "Suporte",
 };
 
 export function Dashboard() {
   const { profile } = useAuth();
   const [demandas, setDemandas] = useState<Demanda[]>([]);
-  const [projetos, setProjetos] = useState<Projeto[]>([]);
+  const [projetos, setProjetos] = useState<ProjetoResumo[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
+  const [colaboradores, setColaboradores] = useState<ColaboradorResumo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
 
-  useEffect(() => {
-    carregarDados();
+  const carregarDados = useCallback(async () => {
+    setLoading(true);
+    setErrorMessage("");
+
+    const [demandasRes, projetosRes, clientesRes, colaboradoresRes] =
+      await Promise.all([
+        supabase
+          .from("demandas")
+          .select(
+            "id,titulo,area,prioridade,status,prazo_finalizacao,created_at,projeto_id,colaborador_id,descricao"
+          )
+          .order("created_at", { ascending: false }),
+        supabase.from("projetos").select("id,cliente_id,nome,status"),
+        supabase.from("clientes").select("id,nome"),
+        supabase.from("profiles").select("id,nome,role,ativo"),
+      ]);
+
+    const firstError =
+      demandasRes.error ||
+      projetosRes.error ||
+      clientesRes.error ||
+      colaboradoresRes.error;
+
+    if (firstError) {
+      setErrorMessage("Não foi possível carregar os dados do dashboard.");
+      setLoading(false);
+      return;
+    }
+
+    setDemandas((demandasRes.data as Demanda[]) ?? []);
+    setProjetos((projetosRes.data as ProjetoResumo[]) ?? []);
+    setClientes((clientesRes.data as Cliente[]) ?? []);
+    setColaboradores((colaboradoresRes.data as ColaboradorResumo[]) ?? []);
+    setLoading(false);
   }, []);
 
-async function carregarDados() {
-  setLoading(true);
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void carregarDados();
+    }, 0);
 
-  const [demandasRes, projetosRes, clientesRes, colaboradoresRes] =
-    await Promise.all([
-      supabase
-        .from("demandas")
-        .select("*")
-        .order("created_at", { ascending: false }),
+    return () => window.clearTimeout(timeoutId);
+  }, [carregarDados]);
 
-      supabase
-        .from("projetos")
-        .select("*"),
+  const projetosMap = useMemo(
+    () => new Map(projetos.map((projeto) => [projeto.id, projeto])),
+    [projetos]
+  );
 
-      supabase
-        .from("clientes")
-        .select("*"),
+  const clientesMap = useMemo(
+    () => new Map(clientes.map((cliente) => [cliente.id, cliente])),
+    [clientes]
+  );
 
-      supabase
-        .from("profiles")
-        .select("id,nome,role"),
-    ]);
+  const colaboradoresMap = useMemo(
+    () =>
+      new Map(
+        colaboradores.map((colaborador) => [colaborador.id, colaborador])
+      ),
+    [colaboradores]
+  );
 
-  setDemandas((demandasRes.data as Demanda[]) ?? []);
-  setProjetos((projetosRes.data as Projeto[]) ?? []);
-  console.log("PROJETOS", projetosRes.data);
-  console.log("CLIENTES", clientesRes.data);
-  console.log("COLABORADORES", colaboradoresRes.data);
-  console.log("DEMANDAS", demandasRes.data);
-  setClientes((clientesRes.data as Cliente[]) ?? []);
-  setColaboradores((colaboradoresRes.data as Colaborador[]) ?? []);
+  const demandasFiltradas = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
 
-  setLoading(false);
-}
+    if (!term) {
+      return demandas;
+    }
+
+    return demandas.filter((demanda) => {
+      const projeto = projetosMap.get(demanda.projeto_id);
+      const cliente = projeto ? clientesMap.get(projeto.cliente_id) : null;
+      const colaborador = colaboradoresMap.get(demanda.colaborador_id);
+
+      return [
+        demanda.titulo,
+        demanda.area,
+        demanda.status,
+        demanda.prioridade,
+        projeto?.nome,
+        cliente?.nome,
+        colaborador?.nome,
+      ]
+        .filter(Boolean)
+        .some((value) => value?.toLowerCase().includes(term));
+    });
+  }, [clientesMap, colaboradoresMap, demandas, projetosMap, searchTerm]);
 
   const totalDemandas = demandas.length;
   const pendentes = demandas.filter((d) => d.status === "pendente").length;
@@ -97,101 +134,119 @@ async function carregarDados() {
   const canceladas = demandas.filter((d) => d.status === "cancelado").length;
 
   const atrasadas = demandas.filter((d) => {
-    if (!d.prazo_finalizacao || d.status === "concluido") return false;
+    if (!d.prazo_finalizacao || d.status === "concluido") {
+      return false;
+    }
+
     return new Date(d.prazo_finalizacao) < new Date();
   }).length;
 
   const projetosAtivos = projetos.filter((p) => p.status === "ATIVO").length;
-  const projetosMap = new Map<string, Projeto>();
+  const colaboradoresAtivos = colaboradores.filter((c) => c.ativo).length;
+  const demandasAtivas = pendentes + emAndamento;
 
-  projetos.forEach((p) => {
-    projetosMap.set(p.id, p);
-  });
+  const porArea = useMemo(
+    () =>
+      areas.map((area) => ({
+        area,
+        total: demandas.filter((demanda) => demanda.area === area).length,
+      })),
+    [demandas]
+  );
 
-  const clientesMap = new Map<string, Cliente>();
+  const areaChartItems = porArea.map((item, index) => ({
+    label: areaLabels[item.area] ?? item.area,
+    value: item.total,
+    color: ["#2563eb", "#22c55e", "#f59e0b", "#a855f7", "#64748b"][index],
+  }));
 
-  clientes.forEach((c) => {
-  clientesMap.set(c.id, c);
-  });
+  const statusChartItems = [
+    {
+      label: "Pendentes",
+      value: pendentes,
+      color: "#f59e0b",
+    },
+    {
+      label: "Em andamento",
+      value: emAndamento,
+      color: "#2563eb",
+    },
+    {
+      label: "Concluídas",
+      value: concluidas,
+      color: "#22c55e",
+    },
+    {
+      label: "Canceladas",
+      value: canceladas,
+      color: "#ef4444",
+    },
+  ];
 
-  const colaboradoresMap = new Map<string, Colaborador>();
+  const ultimasDemandas = demandasFiltradas.slice(0, 6);
 
-  colaboradores.forEach((c) => {
-  colaboradoresMap.set(c.id, c);
-  });
+  function exportarRelatorio() {
+    const header = [
+      "Demanda",
+      "Projeto",
+      "Cliente",
+      "Area",
+      "Status",
+      "Prioridade",
+      "Prazo",
+      "Colaborador",
+    ];
 
-  const porArea = useMemo(() => {
-    const areas = ["produto", "marketing", "desenvolvimento", "qa", "suporte"];
+    const rows = demandasFiltradas.map((demanda) => {
+      const projeto = projetosMap.get(demanda.projeto_id);
+      const cliente = projeto ? clientesMap.get(projeto.cliente_id) : null;
+      const colaborador = colaboradoresMap.get(demanda.colaborador_id);
 
-    return areas.map((area) => ({
-      area,
-      total: demandas.filter((d) => d.area === area).length,
-    }));
-  }, [demandas]);
+      return [
+        demanda.titulo,
+        projeto?.nome ?? "",
+        cliente?.nome ?? "",
+        demanda.area,
+        demanda.status,
+        demanda.prioridade,
+        demanda.prazo_finalizacao ?? "",
+        colaborador?.nome ?? "",
+      ];
+    });
 
+    const csv = [header, ...rows]
+      .map((row) =>
+        row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")
+      )
+      .join("\n");
 
-  const areaChartItems = [
-  {
-    label: "Produto",
-    value: porArea.find((item) => item.area === "produto")?.total ?? 0,
-    color: "#2563eb",
-  },
-  {
-    label: "Marketing",
-    value: porArea.find((item) => item.area === "marketing")?.total ?? 0,
-    color: "#22c55e",
-  },
-  {
-    label: "Desenvolvimento",
-    value: porArea.find((item) => item.area === "desenvolvimento")?.total ?? 0,
-    color: "#f59e0b",
-  },
-  {
-    label: "QA",
-    value: porArea.find((item) => item.area === "qa")?.total ?? 0,
-    color: "#a855f7",
-  },
-  {
-    label: "Suporte",
-    value: porArea.find((item) => item.area === "suporte")?.total ?? 0,
-    color: "#94a3b8",
-  },
-];
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
 
-const statusChartItems = [
-  {
-    label: "Pendentes",
-    value: pendentes,
-    color: "#f59e0b",
-  },
-  {
-    label: "Em andamento",
-    value: emAndamento,
-    color: "#2563eb",
-  },
-  {
-    label: "Concluídas",
-    value: concluidas,
-    color: "#22c55e",
-  },
-  {
-    label: "Canceladas",
-    value: canceladas,
-    color: "#ef4444",
-  },
-];
-
-  const ultimasDemandas = demandas.slice(0, 6);
+    link.href = url;
+    link.download = "relatorio-demandas.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando dashboard...</p>;
+  }
+
+  if (errorMessage) {
+    return (
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+        {errorMessage}
+      </div>
+    );
   }
 
   return (
     <div className="space-y-8">
       <header className="flex items-start justify-between gap-6">
         <div>
-          <p className="text-sm text-slate-600">Olá, {profile?.nome}! 👋</p>
+          <p className="text-sm text-slate-600">Olá, {profile?.nome}!</p>
           <h1 className="mt-2 text-3xl font-bold text-slate-950">
             Dashboard de Projetos
           </h1>
@@ -201,14 +256,17 @@ const statusChartItems = [
         </div>
 
         <div className="flex gap-3">
-          <button className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 shadow-md">
+          <button className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 shadow-sm">
             <Calendar size={18} />
             Período atual
           </button>
 
-          <button className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 shadow-md">
+          <button
+            onClick={exportarRelatorio}
+            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 shadow-sm"
+          >
             <Download size={18} />
-            Exportar Relatório
+            Exportar CSV
           </button>
         </div>
       </header>
@@ -216,89 +274,89 @@ const statusChartItems = [
       <section className="grid grid-cols-5 gap-4">
         <KpiCard
           icon={<Folder size={22} />}
-          label="Projetos ativos"
+          title="Projetos ativos"
           value={projetosAtivos}
-          helper={`${projetos.length} projeto(s) no total`}
+          subtitle={`${projetos.length} projeto(s) no total`}
           color="blue"
         />
 
         <KpiCard
           icon={<FileText size={22} />}
-          label="Demandas ativas"
-          value={pendentes + emAndamento}
-          helper={`${concluidas} concluída(s)`}
+          title="Demandas ativas"
+          value={demandasAtivas}
+          subtitle={`${concluidas} concluída(s)`}
           color="green"
         />
 
         <KpiCard
           icon={<TrendingUp size={22} />}
-          label="Demandas atrasadas"
+          title="Demandas atrasadas"
           value={atrasadas}
-          helper={`${totalDemandas} demanda(s) no total`}
+          subtitle={`${totalDemandas} demanda(s) no total`}
           color="orange"
         />
 
         <KpiCard
           icon={<Users size={22} />}
-          label="Colaboradores"
-          value={2}
-          helper="Usuários de teste"
+          title="Colaboradores"
+          value={colaboradoresAtivos}
+          subtitle={`${colaboradores.length} perfil(is) no total`}
           color="cyan"
         />
 
         <KpiCard
           icon={<FileText size={22} />}
-          label="Concluídas"
+          title="Concluídas"
           value={concluidas}
-          helper={`${canceladas} cancelada(s)`}
+          subtitle={`${canceladas} cancelada(s)`}
           color="purple"
         />
       </section>
 
       <section className="grid grid-cols-3 gap-5">
-  <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-    <h2 className="font-semibold text-slate-950">Distribuição por Área</h2>
-    <DonutChart total={totalDemandas} items={areaChartItems} />
-  </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="font-semibold text-slate-950">Distribuição por Área</h2>
+          <DonutChart total={totalDemandas} items={areaChartItems} />
+        </div>
 
-  <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-    <h2 className="font-semibold text-slate-950">Status das Demandas</h2>
-    <DonutChart total={totalDemandas} items={statusChartItems} />
-  </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="font-semibold text-slate-950">Status das Demandas</h2>
+          <DonutChart total={totalDemandas} items={statusChartItems} />
+        </div>
 
-  <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-    <h2 className="font-semibold text-slate-950">Capacidade da Equipe</h2>
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="font-semibold text-slate-950">Capacidade da Equipe</h2>
 
-    <div className="mt-10 text-center">
-      <p className="text-6xl font-bold text-slate-950">
-        {totalDemandas === 0
-          ? 0
-          : Math.round(((pendentes + emAndamento) / totalDemandas) * 100)}
-        %
-      </p>
-
-      <p className="mt-3 text-sm text-slate-500">
-        demandas abertas em relação ao total
-      </p>
-
-      <div className="mt-8 h-3 rounded-full bg-slate-100">
-        <div
-          className="h-3 rounded-full bg-emerald-500"
-          style={{
-            width: `${
-              totalDemandas === 0
+          <div className="mt-10 text-center">
+            <p className="text-6xl font-bold text-slate-950">
+              {totalDemandas === 0
                 ? 0
-                : Math.round(((pendentes + emAndamento) / totalDemandas) * 100)
-            }%`,
-          }}
-        />
-      </div>
-    </div>
-  </div>
-</section>
+                : Math.round((demandasAtivas / totalDemandas) * 100)}
+              %
+            </p>
+
+            <p className="mt-3 text-sm text-slate-500">
+              demandas abertas em relação ao total
+            </p>
+
+            <div className="mt-8 h-3 rounded-full bg-slate-100">
+              <div
+                className="h-3 rounded-full bg-emerald-500"
+                style={{
+                  width: `${
+                    totalDemandas === 0
+                      ? 0
+                      : Math.round((demandasAtivas / totalDemandas) * 100)
+                  }%`,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-200 p-6">
+        <div className="flex items-center justify-between gap-4 border-b border-slate-200 p-6">
           <div>
             <h2 className="text-xl font-semibold text-slate-950">
               Carteira de Demandas
@@ -308,10 +366,15 @@ const statusChartItems = [
             </p>
           </div>
 
-          <div className="flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-400">
+          <label className="flex min-w-80 items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-500">
             <Search size={16} />
-            Buscar demanda...
-          </div>
+            <input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              className="w-full bg-transparent outline-none placeholder:text-slate-400"
+              placeholder="Buscar demanda..."
+            />
+          </label>
         </div>
 
         <div className="overflow-hidden">
@@ -333,144 +396,87 @@ const statusChartItems = [
             <tbody className="divide-y divide-slate-100">
               {ultimasDemandas.map((demanda) => {
                 const projeto = projetosMap.get(demanda.projeto_id);
-
-                 const cliente = projeto
-                 ? clientesMap.get((projeto as any).cliente_id)
+                const cliente = projeto
+                  ? clientesMap.get(projeto.cliente_id)
                   : undefined;
+                const colaborador = colaboradoresMap.get(
+                  demanda.colaborador_id
+                );
 
-                  const colaborador = colaboradoresMap.get(demanda.colaborador_id);
+                return (
+                  <tr key={demanda.id}>
+                    <td className="px-6 py-4 font-medium text-slate-900">
+                      {demanda.titulo}
+                    </td>
 
-              return (
-                <tr key={demanda.id}>
-                <td className="px-6 py-4 font-medium text-slate-900">
-                {demanda.titulo}
-                </td>
+                    <td className="px-6 py-4">
+                      {projeto ? (
+                        <Link
+                          to={`/projetos/${projeto.id}`}
+                          className="font-semibold text-blue-600 hover:underline"
+                        >
+                          {projeto.nome}
+                        </Link>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
 
-                <td className="px-6 py-4">
-                {projeto ? (
-                <Link
-                to={`/projetos/${projeto.id}`}
-                className="font-semibold text-blue-600 hover:underline"
-                >
-                {projeto.nome}
-                </Link>
-                ) : (
-                "-"
-                )}
-              </td>
+                    <td className="px-6 py-4 text-slate-600">
+                      {cliente?.nome ?? "-"}
+                    </td>
 
-                <td className="px-6 py-4 text-slate-600">
-                {cliente?.nome ?? "-"}
-               </td>
+                    <td className="px-6 py-4">
+                      <Badge>{areaLabels[demanda.area] ?? demanda.area}</Badge>
+                    </td>
 
-                <td className="px-6 py-4">
-                <Badge>{demanda.area}</Badge>
-                </td>
+                    <td className="px-6 py-4">
+                      <StatusBadge status={demanda.status} />
+                    </td>
 
-                <td className="px-6 py-4">
-                <StatusBadge status={demanda.status} />
-                </td>
+                    <td className="px-6 py-4 text-slate-600">
+                      {demanda.prioridade}
+                    </td>
 
-                <td className="px-6 py-4 text-slate-600">
-                {demanda.prioridade}
-                </td>
+                    <td className="px-6 py-4 text-slate-600">
+                      {formatDate(demanda.prazo_finalizacao)}
+                    </td>
 
-                <td className="px-6 py-4 text-slate-600">
-                {demanda.prazo_finalizacao ?? "-"}
-        </td>
+                    <td className="px-6 py-4 text-slate-600">
+                      {colaborador?.nome ?? "-"}
+                    </td>
 
-        <td className="px-6 py-4 text-slate-600">
-          {colaborador?.nome ?? "-"}
-        </td>
-        <td className="px-6 py-4 text-center">
-        <Link
-        to={`/projetos/${projeto?.id}`}
-        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600"
-        title="Ver detalhes"
-        >
-        <ArrowRight size={18} />
-        </Link>
-      </td>
-      </tr>
-    );
-  })}
-</tbody>
+                    <td className="px-6 py-4 text-center">
+                      {projeto ? (
+                        <Link
+                          to={`/projetos/${projeto.id}`}
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600"
+                          title="Ver detalhes"
+                        >
+                          <ArrowRight size={18} />
+                        </Link>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
           </table>
+
+          {ultimasDemandas.length === 0 && (
+            <p className="p-6 text-sm text-slate-500">
+              Nenhuma demanda encontrada.
+            </p>
+          )}
         </div>
       </section>
     </div>
   );
 }
 
-function KpiCard({
-  icon,
-  label,
-  value,
-  helper,
-  color,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  helper: string;
-  color: "blue" | "green" | "orange" | "cyan" | "purple";
-}) {
-  const styles = {
-    blue: {
-      bg: "bg-blue-50",
-      text: "text-blue-600",
-      bar: "bg-blue-600",
-    },
-    green: {
-      bg: "bg-emerald-50",
-      text: "text-emerald-600",
-      bar: "bg-emerald-500",
-    },
-    orange: {
-      bg: "bg-orange-50",
-      text: "text-orange-600",
-      bar: "bg-orange-500",
-    },
-    cyan: {
-      bg: "bg-cyan-50",
-      text: "text-cyan-600",
-      bar: "bg-cyan-500",
-    },
-    purple: {
-      bg: "bg-purple-50",
-      text: "text-purple-600",
-      bar: "bg-purple-500",
-    },
-  };
-
-  const s = styles[color];
-
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition hover:shadow-md">
-      <div className={`flex h-14 w-14 items-center justify-center rounded-full ${s.bg} ${s.text}`}>
-        {icon}
-      </div>
-
-      <p className="mt-5 text-xs font-bold uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
-
-      <h2 className="mt-2 text-5xl font-bold text-slate-900">
-        {value}
-      </h2>
-
-      <p className="mt-3 text-sm text-slate-500">
-        {helper}
-      </p>
-
-      <div className="mt-6 h-1.5 rounded-full bg-slate-100">
-        <div className={`h-1.5 w-2/5 rounded-full ${s.bar}`} />
-      </div>
-    </div>
-  );
-}
-
-function Badge({ children }: { children: React.ReactNode }) {
+function Badge({ children }: { children: ReactNode }) {
   return (
     <span className="rounded-lg bg-blue-50 px-3 py-1 text-xs font-medium capitalize text-blue-700">
       {children}
@@ -479,17 +485,17 @@ function Badge({ children }: { children: React.ReactNode }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const colors = {
-    pendente: "bg-yellow-100 text-yellow-700 border border-yellow-200",
-    "em andamento": "bg-green-100 text-green-700 border border-green-200",
-    concluido: "bg-blue-100 text-blue-700 border border-blue-200",
-    cancelado: "bg-red-100 text-red-700 border border-red-200",
+  const colors: Record<string, string> = {
+    pendente: "border border-yellow-200 bg-yellow-100 text-yellow-700",
+    "em andamento": "border border-blue-200 bg-blue-100 text-blue-700",
+    concluido: "border border-emerald-200 bg-emerald-100 text-emerald-700",
+    cancelado: "border border-red-200 bg-red-100 text-red-700",
   };
 
   return (
     <span
       className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${
-        colors[status as keyof typeof colors]
+        colors[status] ?? "border border-slate-200 bg-slate-100 text-slate-700"
       }`}
     >
       {status}
@@ -533,9 +539,7 @@ function DonutChart({
         />
 
         <div className="absolute inset-6 flex flex-col items-center justify-center rounded-full bg-white">
-          <strong className="text-3xl font-bold text-slate-900">
-            {total}
-          </strong>
+          <strong className="text-3xl font-bold text-slate-900">{total}</strong>
           <span className="text-xs text-slate-500">Total</span>
         </div>
       </div>
@@ -564,4 +568,14 @@ function DonutChart({
       </div>
     </div>
   );
+}
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return "-";
+  }
+
+  return new Date(value).toLocaleDateString("pt-BR", {
+    timeZone: "UTC",
+  });
 }

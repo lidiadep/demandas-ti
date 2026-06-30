@@ -1,14 +1,24 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
+import { getHomePath } from "../routes/home";
+import type { Profile } from "../types/domain";
 
 export function Login() {
   const navigate = useNavigate();
+  const { profile, loading: authLoading } = useAuth();
 
-  const [email, setEmail] = useState("gestor@demo.com");
-  const [password, setPassword] = useState("123456");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    if (!authLoading && profile?.ativo) {
+      navigate(getHomePath(profile.role), { replace: true });
+    }
+  }, [authLoading, navigate, profile]);
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -27,30 +37,33 @@ export function Login() {
       return;
     }
 
-    const { data: profile, error: profileError } = await supabase
+    const { data: profileData, error: profileError } = await supabase
       .from("profiles")
       .select("id, nome, email, role, ativo")
       .eq("user_id", data.user.id)
       .single();
 
-    if (profileError || !profile) {
+    if (profileError || !profileData) {
       setErrorMessage("Perfil não encontrado.");
       setLoading(false);
       return;
     }
 
-    if (profile.role === "GESTOR") {
-      navigate("/dashboard");
-    } else {
-      navigate("/minhas-demandas");
+    const userProfile = profileData as Pick<Profile, "role" | "ativo">;
+
+    if (!userProfile.ativo) {
+      setErrorMessage("Perfil inativo. Fale com a gestão de TI.");
+      setLoading(false);
+      return;
     }
 
+    navigate(getHomePath(userProfile.role));
     setLoading(false);
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-slate-100 px-4">
-      <section className="w-full max-w-md rounded-2xl bg-white p-8 shadow-sm border border-slate-200">
+    <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
         <p className="text-sm font-medium text-slate-500">Portal de Demandas</p>
 
         <h1 className="mt-2 text-3xl font-semibold text-slate-900">
@@ -69,6 +82,8 @@ export function Login() {
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+              required
             />
           </div>
 
@@ -79,6 +94,8 @@ export function Login() {
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              required
             />
           </div>
 

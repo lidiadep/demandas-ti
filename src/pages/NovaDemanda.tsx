@@ -1,59 +1,62 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
+import type { Area, Priority } from "../types/domain";
 
-type Projeto = {
+type ProjetoOption = {
   id: string;
   nome: string;
 };
 
 export function NovaDemanda() {
-  const [projetos, setProjetos] = useState<Projeto[]>([]);
+  const { profile } = useAuth();
+  const [projetos, setProjetos] = useState<ProjetoOption[]>([]);
   const [projetoId, setProjetoId] = useState("");
   const [titulo, setTitulo] = useState("");
   const [descricao, setDescricao] = useState("");
-  const [area, setArea] = useState("desenvolvimento");
-  const [prioridade, setPrioridade] = useState("media");
+  const [area, setArea] = useState<Area>("desenvolvimento");
+  const [prioridade, setPrioridade] = useState<Priority>("media");
   const [prazo, setPrazo] = useState("");
   const [loading, setLoading] = useState(false);
   const [mensagem, setMensagem] = useState("");
+  const [erro, setErro] = useState("");
 
   useEffect(() => {
     async function carregarProjetos() {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("projetos")
         .select("id, nome")
-        .eq("status", "ATIVO");
+        .eq("status", "ATIVO")
+        .order("nome", { ascending: true });
 
-      if (data) {
-        setProjetos(data);
-        setProjetoId(data[0]?.id ?? "");
+      if (error) {
+        setErro("Não foi possível carregar os projetos ativos.");
+        return;
       }
+
+      const projetosAtivos = (data as ProjetoOption[]) ?? [];
+
+      setProjetos(projetosAtivos);
+      setProjetoId(projetosAtivos[0]?.id ?? "");
     }
 
-    carregarProjetos();
+    void carregarProjetos();
   }, []);
 
   async function salvarDemanda(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setMensagem("");
+    setErro("");
 
-    const { data: userData } = await supabase.auth.getUser();
-
-    if (!userData.user) {
-      setMensagem("Usuário não autenticado.");
+    if (!profile) {
+      setErro("Usuário não autenticado.");
       setLoading(false);
       return;
     }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("user_id", userData.user.id)
-      .single();
-
-    if (!profile) {
-      setMensagem("Perfil não encontrado.");
+    if (!projetoId) {
+      setErro("Selecione um projeto ativo para registrar a demanda.");
       setLoading(false);
       return;
     }
@@ -61,8 +64,8 @@ export function NovaDemanda() {
     const { error } = await supabase.from("demandas").insert({
       projeto_id: projetoId,
       colaborador_id: profile.id,
-      titulo,
-      descricao,
+      titulo: titulo.trim(),
+      descricao: descricao.trim() || null,
       area,
       prioridade,
       status: "pendente",
@@ -70,7 +73,7 @@ export function NovaDemanda() {
     });
 
     if (error) {
-      setMensagem(`Erro ao salvar: ${error.message}`);
+      setErro(`Erro ao salvar: ${error.message}`);
       setLoading(false);
       return;
     }
@@ -130,7 +133,7 @@ export function NovaDemanda() {
           <select
             className="rounded-xl border border-slate-300 px-4 py-3"
             value={area}
-            onChange={(e) => setArea(e.target.value)}
+            onChange={(e) => setArea(e.target.value as Area)}
           >
             <option value="produto">Produto</option>
             <option value="marketing">Marketing</option>
@@ -142,7 +145,7 @@ export function NovaDemanda() {
           <select
             className="rounded-xl border border-slate-300 px-4 py-3"
             value={prioridade}
-            onChange={(e) => setPrioridade(e.target.value)}
+            onChange={(e) => setPrioridade(e.target.value as Priority)}
           >
             <option value="baixa">Baixa</option>
             <option value="media">Média</option>
@@ -157,10 +160,11 @@ export function NovaDemanda() {
           />
         </div>
 
-        {mensagem && <p className="text-sm text-slate-600">{mensagem}</p>}
+        {erro && <p className="text-sm text-red-600">{erro}</p>}
+        {mensagem && <p className="text-sm text-emerald-600">{mensagem}</p>}
 
         <button
-          disabled={loading}
+          disabled={loading || projetos.length === 0}
           className="rounded-xl bg-slate-900 px-5 py-3 font-medium text-white disabled:opacity-60"
         >
           {loading ? "Salvando..." : "Salvar demanda"}
