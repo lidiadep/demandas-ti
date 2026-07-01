@@ -4,7 +4,6 @@ import { AppLayout } from "./layouts/AppLayout";
 import { Dashboard } from "./pages/Dashboard";
 import { MinhasDemandas } from "./pages/MinhasDemandas";
 import { NovaDemanda } from "./pages/NovaDemanda";
-import { Projetos } from "./pages/Projetos";
 import { Kanban } from "./pages/Kanban";
 import { ProjetoDetalhes } from "./pages/ProjetoDetalhes";
 import { ProtectedRoute } from "./routes/ProtectedRoute";
@@ -25,7 +24,7 @@ export default function App() {
           <Route element={<AppLayout />}>
             <Route element={<ProtectedRoute allowedRoles={["GESTOR"]} />}>
               <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/projetos" element={<Projetos />} />
+              <Route path="/projetos" element={<Navigate to="/dashboard" replace />} />
               <Route path="/projetos/:id" element={<ProjetoDetalhes />} />
               <Route path="/kanban" element={<Kanban />} />
             </Route>

@@ -1,7 +1,6 @@
 import {
   BarChart3,
   ClipboardList,
-  FolderKanban,
   LayoutDashboard,
   LogOut,
   PlusCircle,
@@ -21,7 +20,6 @@ export function AppLayout() {
 
   const gestorLinks = [
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { to: "/projetos", label: "Projetos", icon: FolderKanban },
     { to: "/kanban", label: "Kanban", icon: BarChart3 },
   ];
 
@@ -40,7 +38,10 @@ export function AppLayout() {
         <nav className="mt-8 space-y-2">
           {links.map((item) => {
             const Icon = item.icon;
-            const active = location.pathname === item.to;
+            const active =
+              location.pathname === item.to ||
+              (item.to === "/dashboard" &&
+                location.pathname.startsWith("/projetos/"));
 
             return (
               <Link

@@ -1,25 +1,46 @@
+import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight,
   Calendar,
+  Clock3,
   Download,
   FileText,
+  Filter,
   Folder,
+  MoreVertical,
+  Plus,
   Search,
   TrendingUp,
   Users,
 } from "lucide-react";
-import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { KpiCard } from "../components/dashboard/KpiCards";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
 import type { Cliente, Demanda, Profile, Projeto } from "../types/domain";
 
-type ProjetoResumo = Pick<Projeto, "id" | "cliente_id" | "nome" | "status">;
+type ProjetoResumo = Pick<
+  Projeto,
+  | "id"
+  | "cliente_id"
+  | "nome"
+  | "descricao"
+  | "status"
+  | "codigo"
+  | "area_id"
+  | "responsavel_id"
+  | "data_inicio"
+  | "prazo_final"
+>;
 type ColaboradorResumo = Pick<Profile, "id" | "nome" | "role" | "ativo">;
 
-const areas = ["produto", "marketing", "desenvolvimento", "qa", "suporte"];
+type ChartItem = {
+  label: string;
+  value: number;
+  color: string;
+  suffix?: string;
+};
+
+const areas = ["desenvolvimento", "suporte", "produto", "qa", "marketing"];
 
 const areaLabels: Record<string, string> = {
   produto: "Produto",
@@ -28,6 +49,8 @@ const areaLabels: Record<string, string> = {
   qa: "QA",
   suporte: "Suporte",
 };
+
+const areaColors = ["#2563eb", "#22c55e", "#f59e0b", "#a855f7", "#94a3b8"];
 
 export function Dashboard() {
   const { profile } = useAuth();
@@ -47,22 +70,33 @@ export function Dashboard() {
       await Promise.all([
         supabase
           .from("demandas")
-          .select(
-            "id,titulo,area,prioridade,status,prazo_finalizacao,created_at,projeto_id,colaborador_id,descricao"
-          )
+          .select("*")
           .order("created_at", { ascending: false }),
-        supabase.from("projetos").select("id,cliente_id,nome,status"),
+        supabase
+          .from("projetos")
+          .select("*")
+          .order("nome", { ascending: true }),
         supabase.from("clientes").select("id,nome"),
         supabase.from("profiles").select("id,nome,role,ativo"),
       ]);
 
-    const firstError =
-      demandasRes.error ||
-      projetosRes.error ||
-      clientesRes.error ||
-      colaboradoresRes.error;
+    const queryErrors = [
+      ["demandas", demandasRes.error],
+      ["projetos", projetosRes.error],
+      ["clientes", clientesRes.error],
+      ["profiles", colaboradoresRes.error],
+    ].filter(([, error]) => Boolean(error));
+
+    const firstError = queryErrors[0]?.[1];
 
     if (firstError) {
+      if (import.meta.env.DEV) {
+        console.error(
+          "Erro ao carregar dashboard",
+          JSON.stringify(queryErrors, null, 2)
+        );
+      }
+
       setErrorMessage("Não foi possível carregar os dados do dashboard.");
       setLoading(false);
       return;
@@ -83,11 +117,6 @@ export function Dashboard() {
     return () => window.clearTimeout(timeoutId);
   }, [carregarDados]);
 
-  const projetosMap = useMemo(
-    () => new Map(projetos.map((projeto) => [projeto.id, projeto])),
-    [projetos]
-  );
-
   const clientesMap = useMemo(
     () => new Map(clientes.map((cliente) => [cliente.id, cliente])),
     [clientes]
@@ -101,118 +130,166 @@ export function Dashboard() {
     [colaboradores]
   );
 
-  const demandasFiltradas = useMemo(() => {
+  const projetosComMetricas = useMemo(() => {
+    return projetos.map((projeto) => {
+      const demandasDoProjeto = demandas.filter(
+        (demanda) => demanda.projeto_id === projeto.id
+      );
+      const concluidas = demandasDoProjeto.filter(
+        (demanda) => demanda.status === "concluido"
+      ).length;
+      const ativas = demandasDoProjeto.filter((demanda) =>
+        ["pendente", "em andamento"].includes(demanda.status)
+      ).length;
+      const atrasadas = demandasDoProjeto.filter(isDemandaAtrasada).length;
+      const horasEstimadas = demandasDoProjeto.reduce(
+        (total, demanda) => total + getEstimatedHours(demanda),
+        0
+      );
+      const horasRealizadas = demandasDoProjeto.reduce(
+        (total, demanda) => total + getWorkedHours(demanda),
+        0
+      );
+      const progresso =
+        demandasDoProjeto.length === 0
+          ? 0
+          : Math.round((concluidas / demandasDoProjeto.length) * 100);
+      const areaPrincipal = getAreaPrincipal(demandasDoProjeto);
+      const prazoMaisProximo =
+        projeto.prazo_final ?? getPrazoMaisProximo(demandasDoProjeto);
+      const responsavel =
+        (projeto.responsavel_id
+          ? colaboradoresMap.get(projeto.responsavel_id)?.nome
+          : null) ??
+        (demandasDoProjeto[0]
+          ? colaboradoresMap.get(demandasDoProjeto[0].colaborador_id)?.nome
+          : null) ??
+        "-";
+
+      return {
+        ...projeto,
+        clienteNome: clientesMap.get(projeto.cliente_id)?.nome ?? "-",
+        demandas: demandasDoProjeto.length,
+        demandasAtivas: ativas,
+        demandasConcluidas: concluidas,
+        demandasAtrasadas: atrasadas,
+        horasEstimadas,
+        horasRealizadas,
+        progresso,
+        areaPrincipal,
+        prazoMaisProximo,
+        responsavel,
+      };
+    });
+  }, [clientesMap, colaboradoresMap, demandas, projetos]);
+
+  const projetosFiltrados = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
 
     if (!term) {
-      return demandas;
+      return projetosComMetricas;
     }
 
-    return demandas.filter((demanda) => {
-      const projeto = projetosMap.get(demanda.projeto_id);
-      const cliente = projeto ? clientesMap.get(projeto.cliente_id) : null;
-      const colaborador = colaboradoresMap.get(demanda.colaborador_id);
-
-      return [
-        demanda.titulo,
-        demanda.area,
-        demanda.status,
-        demanda.prioridade,
-        projeto?.nome,
-        cliente?.nome,
-        colaborador?.nome,
+    return projetosComMetricas.filter((projeto) =>
+      [
+        projeto.nome,
+        projeto.clienteNome,
+        projeto.status,
+        projeto.areaPrincipal,
+        projeto.responsavel,
       ]
         .filter(Boolean)
-        .some((value) => value?.toLowerCase().includes(term));
-    });
-  }, [clientesMap, colaboradoresMap, demandas, projetosMap, searchTerm]);
+        .some((value) => value.toLowerCase().includes(term))
+    );
+  }, [projetosComMetricas, searchTerm]);
 
   const totalDemandas = demandas.length;
-  const pendentes = demandas.filter((d) => d.status === "pendente").length;
-  const emAndamento = demandas.filter((d) => d.status === "em andamento").length;
-  const concluidas = demandas.filter((d) => d.status === "concluido").length;
-  const canceladas = demandas.filter((d) => d.status === "cancelado").length;
-
-  const atrasadas = demandas.filter((d) => {
-    if (!d.prazo_finalizacao || d.status === "concluido") {
-      return false;
-    }
-
-    return new Date(d.prazo_finalizacao) < new Date();
-  }).length;
-
-  const projetosAtivos = projetos.filter((p) => p.status === "ATIVO").length;
-  const colaboradoresAtivos = colaboradores.filter((c) => c.ativo).length;
+  const pendentes = demandas.filter((demanda) => demanda.status === "pendente")
+    .length;
+  const emAndamento = demandas.filter(
+    (demanda) => demanda.status === "em andamento"
+  ).length;
+  const concluidas = demandas.filter((demanda) => demanda.status === "concluido")
+    .length;
+  const bloqueadas = demandas.filter((demanda) =>
+    ["bloqueado", "cancelado"].includes(demanda.status)
+  ).length;
   const demandasAtivas = pendentes + emAndamento;
-
-  const porArea = useMemo(
-    () =>
-      areas.map((area) => ({
-        area,
-        total: demandas.filter((demanda) => demanda.area === area).length,
-      })),
-    [demandas]
+  const demandasAtrasadas = demandas.filter(isDemandaAtrasada).length;
+  const projetosAtivos = projetos.filter((projeto) =>
+    ["ATIVO", "planejado", "em andamento"].includes(projeto.status)
+  ).length;
+  const colaboradoresAtivos = colaboradores.filter(
+    (colaborador) => colaborador.ativo
+  ).length;
+  const horasEstimadas = demandas.reduce(
+    (total, demanda) => total + getEstimatedHours(demanda),
+    0
   );
+  const horasAtivas = demandas
+    .filter((demanda) =>
+      ["pendente", "em andamento", "bloqueado"].includes(demanda.status)
+    )
+    .reduce((total, demanda) => total + getEstimatedHours(demanda), 0);
+  const capacidadeUtilizada =
+    horasEstimadas === 0 ? 0 : Math.round((horasAtivas / horasEstimadas) * 100);
 
-  const areaChartItems = porArea.map((item, index) => ({
-    label: areaLabels[item.area] ?? item.area,
-    value: item.total,
-    color: ["#2563eb", "#22c55e", "#f59e0b", "#a855f7", "#64748b"][index],
+  const hoursByAreaItems = areas.map((area, index) => ({
+    label: areaLabels[area] ?? area,
+    value: demandas
+      .filter((demanda) => demanda.area === area)
+      .reduce((total, demanda) => total + getEstimatedHours(demanda), 0),
+    color: areaColors[index],
+    suffix: "h",
   }));
 
   const statusChartItems = [
-    {
-      label: "Pendentes",
-      value: pendentes,
-      color: "#f59e0b",
-    },
     {
       label: "Em andamento",
       value: emAndamento,
       color: "#2563eb",
     },
     {
+      label: "Pendentes",
+      value: pendentes,
+      color: "#f59e0b",
+    },
+    {
+      label: "Bloqueadas",
+      value: bloqueadas,
+      color: "#ef4444",
+    },
+    {
       label: "Concluídas",
       value: concluidas,
       color: "#22c55e",
     },
-    {
-      label: "Canceladas",
-      value: canceladas,
-      color: "#ef4444",
-    },
   ];
-
-  const ultimasDemandas = demandasFiltradas.slice(0, 6);
 
   function exportarRelatorio() {
     const header = [
-      "Demanda",
       "Projeto",
       "Cliente",
       "Area",
       "Status",
-      "Prioridade",
+      "Progresso",
+      "Horas Estimadas",
+      "Horas Realizadas",
       "Prazo",
-      "Colaborador",
+      "Responsavel",
     ];
 
-    const rows = demandasFiltradas.map((demanda) => {
-      const projeto = projetosMap.get(demanda.projeto_id);
-      const cliente = projeto ? clientesMap.get(projeto.cliente_id) : null;
-      const colaborador = colaboradoresMap.get(demanda.colaborador_id);
-
-      return [
-        demanda.titulo,
-        projeto?.nome ?? "",
-        cliente?.nome ?? "",
-        demanda.area,
-        demanda.status,
-        demanda.prioridade,
-        demanda.prazo_finalizacao ?? "",
-        colaborador?.nome ?? "",
-      ];
-    });
+    const rows = projetosFiltrados.map((projeto) => [
+      projeto.nome,
+      projeto.clienteNome,
+      areaLabels[projeto.areaPrincipal] ?? projeto.areaPrincipal,
+      formatProjectStatus(projeto.status, projeto.demandasAtivas),
+      `${projeto.progresso}%`,
+      projeto.horasEstimadas,
+      projeto.horasRealizadas,
+      projeto.prazoMaisProximo ?? "",
+      projeto.responsavel,
+    ]);
 
     const csv = [header, ...rows]
       .map((row) =>
@@ -225,7 +302,7 @@ export function Dashboard() {
     const link = document.createElement("a");
 
     link.href = url;
-    link.download = "relatorio-demandas.csv";
+    link.download = "carteira-projetos.csv";
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -243,22 +320,29 @@ export function Dashboard() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <header className="flex items-start justify-between gap-6">
         <div>
-          <p className="text-sm text-slate-600">Olá, {profile?.nome}!</p>
+          <p className="text-sm font-medium text-slate-600">
+            Olá, {profile?.nome}!
+          </p>
           <h1 className="mt-2 text-3xl font-bold text-slate-950">
             Dashboard de Projetos
           </h1>
           <p className="mt-2 text-sm text-slate-500">
-            Visão geral das demandas, projetos e capacidade da equipe.
+            Visão geral do portfólio de projetos e capacidade da equipe.
           </p>
         </div>
 
         <div className="flex gap-3">
-          <button className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 shadow-sm">
+          <button className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-left text-sm font-medium text-slate-700 shadow-sm">
             <Calendar size={18} />
-            Período atual
+            <span>
+              <span className="block text-xs font-medium text-slate-500">
+                Período
+              </span>
+              Semana atual
+            </span>
           </button>
 
           <button
@@ -266,256 +350,314 @@ export function Dashboard() {
             className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 shadow-sm"
           >
             <Download size={18} />
-            Exportar CSV
+            Exportar Relatório
+          </button>
+
+          <button className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 shadow-sm">
+            <Filter size={18} />
+            Filtros
           </button>
         </div>
       </header>
 
-      <section className="grid grid-cols-5 gap-4">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
         <KpiCard
           icon={<Folder size={22} />}
-          title="Projetos ativos"
+          label="Projetos ativos"
           value={projetosAtivos}
-          subtitle={`${projetos.length} projeto(s) no total`}
+          helper={`${projetos.length - projetosAtivos} concluído(s)`}
           color="blue"
         />
 
         <KpiCard
           icon={<FileText size={22} />}
-          title="Demandas ativas"
+          label="Demandas ativas"
           value={demandasAtivas}
-          subtitle={`${concluidas} concluída(s)`}
+          helper={`${concluidas} concluída(s)`}
           color="green"
         />
 
         <KpiCard
+          icon={<Clock3 size={22} />}
+          label="Horas estimadas (TI)"
+          value={`${horasEstimadas}h`}
+          helper="Soma do esforço previsto"
+          color="purple"
+        />
+
+        <KpiCard
           icon={<TrendingUp size={22} />}
-          title="Demandas atrasadas"
-          value={atrasadas}
-          subtitle={`${totalDemandas} demanda(s) no total`}
+          label="Demandas atrasadas"
+          value={demandasAtrasadas}
+          helper={`${percent(demandasAtrasadas, totalDemandas)}% do total`}
           color="orange"
         />
 
         <KpiCard
           icon={<Users size={22} />}
-          title="Colaboradores"
+          label="Colaboradores"
           value={colaboradoresAtivos}
-          subtitle={`${colaboradores.length} perfil(is) no total`}
+          helper={`${colaboradores.length} perfil(is) no total`}
           color="cyan"
-        />
-
-        <KpiCard
-          icon={<FileText size={22} />}
-          title="Concluídas"
-          value={concluidas}
-          subtitle={`${canceladas} cancelada(s)`}
-          color="purple"
         />
       </section>
 
-      <section className="grid grid-cols-3 gap-5">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="font-semibold text-slate-950">Distribuição por Área</h2>
-          <DonutChart total={totalDemandas} items={areaChartItems} />
-        </div>
+      <section className="grid grid-cols-1 gap-5 lg:grid-cols-2 2xl:grid-cols-[1fr_1fr_1.05fr]">
+        <ChartCard title="Distribuição de Horas por Área">
+          <DonutChart
+            total={horasEstimadas}
+            totalLabel="Total"
+            centerValue={`${horasEstimadas}h`}
+            items={hoursByAreaItems}
+          />
+        </ChartCard>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="font-semibold text-slate-950">Status das Demandas</h2>
-          <DonutChart total={totalDemandas} items={statusChartItems} />
-        </div>
+        <ChartCard title="Status das Demandas">
+          <DonutChart
+            total={totalDemandas}
+            totalLabel="Total"
+            centerValue={String(totalDemandas)}
+            items={statusChartItems}
+          />
+        </ChartCard>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="font-semibold text-slate-950">Capacidade da Equipe</h2>
-
-          <div className="mt-10 text-center">
-            <p className="text-6xl font-bold text-slate-950">
-              {totalDemandas === 0
-                ? 0
-                : Math.round((demandasAtivas / totalDemandas) * 100)}
-              %
-            </p>
-
-            <p className="mt-3 text-sm text-slate-500">
-              demandas abertas em relação ao total
-            </p>
-
-            <div className="mt-8 h-3 rounded-full bg-slate-100">
-              <div
-                className="h-3 rounded-full bg-emerald-500"
-                style={{
-                  width: `${
-                    totalDemandas === 0
-                      ? 0
-                      : Math.round((demandasAtivas / totalDemandas) * 100)
-                  }%`,
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <ChartCard
+          title="Capacidade da Equipe"
+          className="lg:col-span-2 2xl:col-span-1"
+          action={
+            <button className="text-sm font-semibold text-blue-600">
+              Ver detalhes
+            </button>
+          }
+        >
+          <CapacityGauge
+            percent={capacidadeUtilizada}
+            used={horasAtivas}
+            total={horasEstimadas}
+          />
+        </ChartCard>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between gap-4 border-b border-slate-200 p-6">
           <div>
             <h2 className="text-xl font-semibold text-slate-950">
-              Carteira de Demandas
+              Carteira de Projetos
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Últimas demandas registradas no ambiente.
+              Lista de todos os projetos ativos e sua performance.
             </p>
           </div>
 
-          <label className="flex min-w-80 items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-500">
-            <Search size={16} />
-            <input
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              className="w-full bg-transparent outline-none placeholder:text-slate-400"
-              placeholder="Buscar demanda..."
-            />
-          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex min-w-72 items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-500">
+              <Search size={16} />
+              <input
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                className="w-full bg-transparent outline-none placeholder:text-slate-400"
+                placeholder="Buscar projeto..."
+              />
+            </label>
+
+            <button className="flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-blue-600">
+              <Plus size={16} />
+              Novo Projeto
+            </button>
+          </div>
         </div>
 
-        <div className="overflow-hidden">
-          <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-[1180px] w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-6 py-4">Demanda</th>
-                <th className="px-6 py-4">Projeto</th>
-                <th className="px-6 py-4">Cliente</th>
-                <th className="px-6 py-4">Área</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Prioridade</th>
-                <th className="px-6 py-4">Prazo</th>
-                <th className="px-6 py-4">Colaborador</th>
-                <th className="px-6 py-4 text-center">Ações</th>
+                <th className="px-5 py-4">Projeto</th>
+                <th className="px-5 py-4">Cliente</th>
+                <th className="px-5 py-4">Área</th>
+                <th className="px-5 py-4">Status</th>
+                <th className="px-5 py-4">Progresso</th>
+                <th className="px-5 py-4">Horas Estimadas</th>
+                <th className="px-5 py-4">Horas Realizadas</th>
+                <th className="px-5 py-4">Prazo</th>
+                <th className="px-5 py-4">Responsável</th>
+                <th className="px-5 py-4 text-center">Ações</th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-slate-100">
-              {ultimasDemandas.map((demanda) => {
-                const projeto = projetosMap.get(demanda.projeto_id);
-                const cliente = projeto
-                  ? clientesMap.get(projeto.cliente_id)
-                  : undefined;
-                const colaborador = colaboradoresMap.get(
-                  demanda.colaborador_id
-                );
-
-                return (
-                  <tr key={demanda.id}>
-                    <td className="px-6 py-4 font-medium text-slate-900">
-                      {demanda.titulo}
-                    </td>
-
-                    <td className="px-6 py-4">
-                      {projeto ? (
-                        <Link
-                          to={`/projetos/${projeto.id}`}
-                          className="font-semibold text-blue-600 hover:underline"
-                        >
-                          {projeto.nome}
-                        </Link>
-                      ) : (
-                        "-"
+              {projetosFiltrados.slice(0, 8).map((projeto, index) => (
+                <tr key={projeto.id} className="align-middle">
+                  <td className="px-5 py-4">
+                    <Link
+                      to={`/projetos/${projeto.id}`}
+                      className="font-semibold text-slate-950 hover:text-blue-600"
+                    >
+                      {projeto.nome}
+                    </Link>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {projeto.codigo ?? `PRJ${String(index + 1).padStart(3, "0")}`}
+                    </p>
+                  </td>
+                  <td className="px-5 py-4 text-slate-700">
+                    {projeto.clienteNome}
+                  </td>
+                  <td className="px-5 py-4">
+                    <AreaBadge area={projeto.areaPrincipal} />
+                  </td>
+                  <td className="px-5 py-4">
+                    <ProjectStatusBadge
+                      status={formatProjectStatus(
+                        projeto.status,
+                        projeto.demandasAtivas
                       )}
-                    </td>
-
-                    <td className="px-6 py-4 text-slate-600">
-                      {cliente?.nome ?? "-"}
-                    </td>
-
-                    <td className="px-6 py-4">
-                      <Badge>{areaLabels[demanda.area] ?? demanda.area}</Badge>
-                    </td>
-
-                    <td className="px-6 py-4">
-                      <StatusBadge status={demanda.status} />
-                    </td>
-
-                    <td className="px-6 py-4 text-slate-600">
-                      {demanda.prioridade}
-                    </td>
-
-                    <td className="px-6 py-4 text-slate-600">
-                      {formatDate(demanda.prazo_finalizacao)}
-                    </td>
-
-                    <td className="px-6 py-4 text-slate-600">
-                      {colaborador?.nome ?? "-"}
-                    </td>
-
-                    <td className="px-6 py-4 text-center">
-                      {projeto ? (
-                        <Link
-                          to={`/projetos/${projeto.id}`}
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600"
-                          title="Ver detalhes"
-                        >
-                          <ArrowRight size={18} />
-                        </Link>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+                    />
+                  </td>
+                  <td className="px-5 py-4">
+                    <ProgressCell value={projeto.progresso} />
+                  </td>
+                  <td className="px-5 py-4 font-medium text-slate-700">
+                    {projeto.horasEstimadas}h
+                  </td>
+                  <td className="px-5 py-4 font-medium text-slate-700">
+                    {projeto.horasRealizadas}h
+                  </td>
+                  <td className="px-5 py-4">
+                    <DeadlineCell value={projeto.prazoMaisProximo} />
+                  </td>
+                  <td className="px-5 py-4 text-slate-700">
+                    {projeto.responsavel}
+                  </td>
+                  <td className="px-5 py-4 text-center">
+                    <Link
+                      to={`/projetos/${projeto.id}`}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-blue-600"
+                      title="Ver detalhes"
+                    >
+                      <MoreVertical size={18} />
+                    </Link>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
 
-          {ultimasDemandas.length === 0 && (
+          {projetosFiltrados.length === 0 && (
             <p className="p-6 text-sm text-slate-500">
-              Nenhuma demanda encontrada.
+              Nenhum projeto encontrado.
             </p>
           )}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4 text-sm text-slate-500">
+          <span>
+            Exibindo {Math.min(projetosFiltrados.length, 8)} de{" "}
+            {projetosFiltrados.length} projetos
+          </span>
+
+          <button className="font-semibold text-blue-600">
+            Ver todos os projetos
+          </button>
         </div>
       </section>
     </div>
   );
 }
 
-function Badge({ children }: { children: ReactNode }) {
+function KpiCard({
+  icon,
+  label,
+  value,
+  helper,
+  color,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number | string;
+  helper: string;
+  color: "blue" | "green" | "orange" | "purple" | "cyan";
+}) {
+  const styles = {
+    blue: {
+      bg: "bg-blue-50",
+      text: "text-blue-600",
+      bar: "bg-blue-600",
+    },
+    green: {
+      bg: "bg-emerald-50",
+      text: "text-emerald-600",
+      bar: "bg-emerald-500",
+    },
+    orange: {
+      bg: "bg-orange-50",
+      text: "text-orange-600",
+      bar: "bg-orange-500",
+    },
+    purple: {
+      bg: "bg-purple-50",
+      text: "text-purple-600",
+      bar: "bg-purple-500",
+    },
+    cyan: {
+      bg: "bg-cyan-50",
+      text: "text-cyan-600",
+      bar: "bg-cyan-500",
+    },
+  };
+  const style = styles[color];
+
   return (
-    <span className="rounded-lg bg-blue-50 px-3 py-1 text-xs font-medium capitalize text-blue-700">
-      {children}
-    </span>
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div
+        className={`flex h-12 w-12 items-center justify-center rounded-2xl ${style.bg} ${style.text}`}
+      >
+        {icon}
+      </div>
+      <p className="mt-5 text-xs font-bold uppercase text-slate-500">{label}</p>
+      <h2 className="mt-2 text-4xl font-bold text-slate-950">{value}</h2>
+      <p className="mt-3 text-sm text-slate-500">{helper}</p>
+      <div className="mt-5 h-1.5 rounded-full bg-slate-100">
+        <div className={`h-1.5 w-2/5 rounded-full ${style.bar}`} />
+      </div>
+    </div>
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    pendente: "border border-yellow-200 bg-yellow-100 text-yellow-700",
-    "em andamento": "border border-blue-200 bg-blue-100 text-blue-700",
-    concluido: "border border-emerald-200 bg-emerald-100 text-emerald-700",
-    cancelado: "border border-red-200 bg-red-100 text-red-700",
-  };
-
+function ChartCard({
+  title,
+  action,
+  className = "",
+  children,
+}: {
+  title: string;
+  action?: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <span
-      className={`whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${
-        colors[status] ?? "border border-slate-200 bg-slate-100 text-slate-700"
-      }`}
+    <div
+      className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${className}`}
     >
-      {status}
-    </span>
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="font-semibold text-slate-950">{title}</h2>
+        {action}
+      </div>
+      {children}
+    </div>
   );
 }
 
 function DonutChart({
   total,
+  totalLabel,
+  centerValue,
   items,
 }: {
   total: number;
-  items: {
-    label: string;
-    value: number;
-    color: string;
-  }[];
+  totalLabel: string;
+  centerValue: string;
+  items: ChartItem[];
 }) {
   let current = 0;
-
   const gradient =
     total === 0
       ? "#e2e8f0 0deg 360deg"
@@ -529,25 +671,25 @@ function DonutChart({
           .join(", ");
 
   return (
-    <div className="mt-6 flex items-center gap-8">
-      <div className="relative h-40 w-40 shrink-0">
+    <div className="mt-7 flex flex-col items-center gap-6 lg:flex-row lg:gap-8">
+      <div className="relative h-44 w-44 shrink-0">
         <div
-          className="h-40 w-40 rounded-full"
+          className="h-44 w-44 rounded-full"
           style={{
             background: `conic-gradient(${gradient})`,
           }}
         />
-
-        <div className="absolute inset-6 flex flex-col items-center justify-center rounded-full bg-white">
-          <strong className="text-3xl font-bold text-slate-900">{total}</strong>
-          <span className="text-xs text-slate-500">Total</span>
+        <div className="absolute inset-7 flex flex-col items-center justify-center rounded-full bg-white">
+          <strong className="text-3xl font-bold text-slate-950">
+            {centerValue}
+          </strong>
+          <span className="text-sm text-slate-500">{totalLabel}</span>
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="min-w-0 space-y-4">
         {items.map((item) => {
-          const percent =
-            total > 0 ? Math.round((item.value / total) * 100) : 0;
+          const percentValue = percent(item.value, total);
 
           return (
             <div key={item.label} className="flex items-start gap-3 text-sm">
@@ -555,11 +697,11 @@ function DonutChart({
                 className="mt-1 h-3 w-3 rounded-full"
                 style={{ backgroundColor: item.color }}
               />
-
               <div>
                 <p className="font-medium text-slate-700">{item.label}</p>
-                <p className="text-slate-500">
-                  {item.value} ({percent}%)
+                <p className="mt-1 text-slate-500">
+                  {item.value}
+                  {item.suffix ?? ""} ({percentValue}%)
                 </p>
               </div>
             </div>
@@ -570,12 +712,210 @@ function DonutChart({
   );
 }
 
-function formatDate(value: string | null) {
+function CapacityGauge({
+  percent: percentValue,
+  used,
+  total,
+}: {
+  percent: number;
+  used: number;
+  total: number;
+}) {
+  return (
+    <div className="mt-8 flex flex-col items-center">
+      <div className="relative h-36 w-72">
+        <svg viewBox="0 0 240 140" className="h-full w-full">
+          <path
+            d="M 30 120 A 90 90 0 0 1 210 120"
+            fill="none"
+            pathLength="100"
+            stroke="#e2e8f0"
+            strokeLinecap="round"
+            strokeWidth="14"
+          />
+          <path
+            d="M 30 120 A 90 90 0 0 1 210 120"
+            fill="none"
+            pathLength="100"
+            stroke="#22c55e"
+            strokeDasharray="100"
+            strokeDashoffset={100 - percentValue}
+            strokeLinecap="round"
+            strokeWidth="14"
+          />
+        </svg>
+        <div className="absolute inset-x-0 bottom-0 text-center">
+          <p className="text-5xl font-bold text-slate-950">{percentValue}%</p>
+          <p className="mt-2 text-sm font-medium text-slate-600">
+            da capacidade utilizada
+          </p>
+        </div>
+      </div>
+
+      <p className="mt-4 text-sm text-slate-500">
+        {used}h utilizadas de {total}h estimadas
+      </p>
+    </div>
+  );
+}
+
+function AreaBadge({ area }: { area: string }) {
+  const styles: Record<string, string> = {
+    desenvolvimento: "bg-blue-50 text-blue-700",
+    suporte: "bg-orange-50 text-orange-700",
+    produto: "bg-purple-50 text-purple-700",
+    qa: "bg-emerald-50 text-emerald-700",
+    marketing: "bg-amber-50 text-amber-700",
+  };
+
+  return (
+    <span
+      className={`rounded-lg px-3 py-1 text-xs font-semibold ${
+        styles[area] ?? "bg-slate-100 text-slate-700"
+      }`}
+    >
+      {areaLabels[area] ?? area}
+    </span>
+  );
+}
+
+function ProjectStatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    "Em andamento": "bg-emerald-50 text-emerald-700",
+    Pendentes: "bg-amber-50 text-amber-700",
+    Bloqueado: "bg-red-50 text-red-700",
+    Concluído: "bg-blue-50 text-blue-700",
+    Inativo: "bg-slate-100 text-slate-700",
+  };
+
+  return (
+    <span
+      className={`rounded-lg px-3 py-1 text-xs font-semibold ${
+        styles[status] ?? "bg-slate-100 text-slate-700"
+      }`}
+    >
+      {status}
+    </span>
+  );
+}
+
+function ProgressCell({ value }: { value: number }) {
+  return (
+    <div className="flex min-w-32 items-center gap-3">
+      <div className="h-1.5 w-20 rounded-full bg-slate-100">
+        <div
+          className="h-1.5 rounded-full bg-blue-600"
+          style={{ width: `${value}%` }}
+        />
+      </div>
+      <span className="text-xs font-medium text-slate-600">{value}%</span>
+    </div>
+  );
+}
+
+function DeadlineCell({ value }: { value: string | null }) {
   if (!value) {
-    return "-";
+    return <span className="text-slate-500">-</span>;
   }
 
+  const days = daysUntil(value);
+  const late = days < 0;
+
+  return (
+    <div>
+      <p className="font-medium text-slate-700">{formatDate(value)}</p>
+      <p className={`mt-1 text-xs ${late ? "text-red-600" : "text-slate-500"}`}>
+        {late ? `${Math.abs(days)} dia(s) em atraso` : `${days} dia(s)`}
+      </p>
+    </div>
+  );
+}
+
+function getEstimatedHours(demanda: Demanda) {
+  const estimated = Number(demanda.horas_estimadas);
+
+  if (Number.isFinite(estimated) && estimated > 0) {
+    return estimated;
+  }
+
+  const weights: Record<string, number> = {
+    alta: 16,
+    media: 8,
+    baixa: 4,
+  };
+
+  return weights[demanda.prioridade ?? "media"] ?? 8;
+}
+
+function getWorkedHours(demanda: Demanda) {
+  const worked = Number(demanda.horas_realizadas);
+
+  if (Number.isFinite(worked) && worked > 0) {
+    return worked;
+  }
+
+  return demanda.status === "concluido" ? getEstimatedHours(demanda) : 0;
+}
+
+function isDemandaAtrasada(demanda: Demanda) {
+  if (!demanda.prazo_finalizacao || demanda.status === "concluido") {
+    return false;
+  }
+
+  return new Date(demanda.prazo_finalizacao) < new Date();
+}
+
+function getAreaPrincipal(demandas: Demanda[]) {
+  const totals = new Map<string, number>();
+
+  demandas.forEach((demanda) => {
+    const area = demanda.area ?? "desenvolvimento";
+    totals.set(area, (totals.get(area) ?? 0) + 1);
+  });
+
+  return (
+    Array.from(totals.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ??
+    "desenvolvimento"
+  );
+}
+
+function getPrazoMaisProximo(demandas: Demanda[]) {
+  const prazos = demandas
+    .map((demanda) => demanda.prazo_finalizacao)
+    .filter((prazo): prazo is string => Boolean(prazo))
+    .sort();
+
+  return prazos[0] ?? null;
+}
+
+function formatProjectStatus(status: string, demandasAtivas: number) {
+  if (status === "CONCLUIDO") {
+    return "Concluído";
+  }
+
+  if (status === "INATIVO") {
+    return "Inativo";
+  }
+
+  return demandasAtivas > 0 ? "Em andamento" : "Pendentes";
+}
+
+function percent(value: number, total: number) {
+  return total === 0 ? 0 : Math.round((value / total) * 100);
+}
+
+function formatDate(value: string) {
   return new Date(value).toLocaleDateString("pt-BR", {
     timeZone: "UTC",
   });
+}
+
+function daysUntil(value: string) {
+  const today = new Date();
+  const target = new Date(value);
+
+  today.setHours(0, 0, 0, 0);
+  target.setHours(0, 0, 0, 0);
+
+  return Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
 }

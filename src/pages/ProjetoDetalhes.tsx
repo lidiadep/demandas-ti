@@ -135,11 +135,11 @@ export function ProjetoDetalhes() {
     <div className="space-y-8">
       <header>
         <Link
-          to="/projetos"
+          to="/dashboard"
           className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600"
         >
           <ArrowLeft size={16} />
-          Voltar para Projetos
+          Voltar para Dashboard
         </Link>
 
         <div className="mt-6 flex items-start justify-between gap-6">
@@ -241,14 +241,14 @@ export function ProjetoDetalhes() {
 
                   <div className="mt-2 flex items-center gap-2">
                     <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                      {areaLabels[demanda.area] ?? demanda.area}
+                      {getAreaLabel(demanda.area)}
                     </span>
 
                     <DemandStatusBadge status={demanda.status} />
                   </div>
                 </div>
 
-                <PriorityBadge prioridade={demanda.prioridade} />
+                <PriorityBadge prioridade={demanda.prioridade ?? "media"} />
               </div>
             ))}
           </div>
@@ -275,13 +275,13 @@ export function ProjetoDetalhes() {
                 </h3>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  {areaLabels[demanda.area] ?? demanda.area} ·{" "}
+                  {getAreaLabel(demanda.area)} ·{" "}
                   {profilesMap.get(demanda.colaborador_id)?.nome ?? "-"}
                 </p>
               </div>
 
               <div className="flex items-center gap-3">
-                <PriorityBadge prioridade={demanda.prioridade} />
+                <PriorityBadge prioridade={demanda.prioridade ?? "media"} />
                 <DemandStatusBadge status={demanda.status} />
                 <span className="text-sm text-slate-500">
                   {formatDate(demanda.prazo_finalizacao)}
@@ -335,6 +335,14 @@ function StatusBadge({ status }: { status: string }) {
       {status}
     </span>
   );
+}
+
+function getAreaLabel(area: string | null) {
+  if (!area) {
+    return "-";
+  }
+
+  return areaLabels[area] ?? area;
 }
 
 function DemandStatusBadge({ status }: { status: string }) {
