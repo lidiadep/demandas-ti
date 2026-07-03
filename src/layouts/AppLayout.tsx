@@ -6,6 +6,7 @@ import {
   PlusCircle,
 } from "lucide-react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import fortTechSidebarLogo from "../assets/forttech-sidebar-logo.jpg";
 import { useAuth } from "../hooks/useAuth";
 
 export function AppLayout() {
@@ -33,7 +34,14 @@ export function AppLayout() {
   return (
     <div className="min-h-screen bg-slate-50">
       <aside className="fixed left-0 top-0 h-screen w-64 border-r border-slate-200 bg-white px-5 py-6">
-        <h1 className="text-xl font-bold text-slate-950">Demandas TI</h1>
+        <div className="flex h-20 items-center justify-center">
+          <img
+            src={fortTechSidebarLogo}
+            alt="Fort Tech Solutions"
+            className="max-h-20 w-full object-contain"
+          />
+        </div>
+        <h1 className="sr-only">Demandas TI</h1>
 
         <nav className="mt-8 space-y-2">
           {links.map((item) => {
@@ -41,7 +49,8 @@ export function AppLayout() {
             const active =
               location.pathname === item.to ||
               (item.to === "/dashboard" &&
-                location.pathname.startsWith("/projetos/"));
+                (location.pathname.startsWith("/projetos/") ||
+                  location.pathname === "/novo-projeto"));
 
             return (
               <Link

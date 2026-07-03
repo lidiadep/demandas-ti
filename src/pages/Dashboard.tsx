@@ -28,6 +28,7 @@ type ProjetoResumo = Pick<
   | "codigo"
   | "area_id"
   | "responsavel_id"
+  | "horas_estimadas"
   | "data_inicio"
   | "prazo_final"
 >;
@@ -40,17 +41,35 @@ type ChartItem = {
   suffix?: string;
 };
 
-const areas = ["desenvolvimento", "suporte", "produto", "qa", "marketing"];
-
 const areaLabels: Record<string, string> = {
   produto: "Produto",
   marketing: "Marketing",
   desenvolvimento: "Desenvolvimento",
   qa: "QA",
   suporte: "Suporte",
+  sustentacao: "Sustentação",
+  infraestrutura: "Infraestrutura",
+  seguranca: "Segurança",
+  processos: "Processos",
+  qualidade: "Qualidade",
+  negocio: "Negócio",
+  manutencao: "Manutenção",
+  "dados-bi": "Dados e BI",
+  dados_bi: "Dados e BI",
+  "relatorio-bi": "Relatório / BI",
+  relatorio_bi: "Relatório / BI",
 };
 
-const areaColors = ["#2563eb", "#22c55e", "#f59e0b", "#a855f7", "#94a3b8"];
+const areaColors = [
+  "#2563eb",
+  "#22c55e",
+  "#f59e0b",
+  "#a855f7",
+  "#0f766e",
+  "#ef4444",
+  "#64748b",
+  "#0891b2",
+];
 
 export function Dashboard() {
   const { profile } = useAuth();
@@ -142,10 +161,15 @@ export function Dashboard() {
         ["pendente", "em andamento"].includes(demanda.status)
       ).length;
       const atrasadas = demandasDoProjeto.filter(isDemandaAtrasada).length;
-      const horasEstimadas = demandasDoProjeto.reduce(
+      const horasEstimadasDemandas = demandasDoProjeto.reduce(
         (total, demanda) => total + getEstimatedHours(demanda),
         0
       );
+      const horasEstimadasProjeto = Number(projeto.horas_estimadas);
+      const horasEstimadas =
+        Number.isFinite(horasEstimadasProjeto) && horasEstimadasProjeto > 0
+          ? horasEstimadasProjeto
+          : horasEstimadasDemandas;
       const horasRealizadas = demandasDoProjeto.reduce(
         (total, demanda) => total + getWorkedHours(demanda),
         0
@@ -234,14 +258,20 @@ export function Dashboard() {
   const capacidadeUtilizada =
     horasEstimadas === 0 ? 0 : Math.round((horasAtivas / horasEstimadas) * 100);
 
-  const hoursByAreaItems = areas.map((area, index) => ({
-    label: areaLabels[area] ?? area,
-    value: demandas
-      .filter((demanda) => demanda.area === area)
-      .reduce((total, demanda) => total + getEstimatedHours(demanda), 0),
-    color: areaColors[index],
-    suffix: "h",
-  }));
+  const hoursByAreaItems = Array.from(
+    demandas.reduce<Map<string, number>>((totals, demanda) => {
+      const area = demanda.area ?? "sem_area";
+      totals.set(area, (totals.get(area) ?? 0) + getEstimatedHours(demanda));
+      return totals;
+    }, new Map())
+  )
+    .filter(([, value]) => value > 0)
+    .map(([area, value], index) => ({
+      label: areaLabels[area] ?? formatAreaLabel(area),
+      value,
+      color: areaColors[index % areaColors.length],
+      suffix: "h",
+    }));
 
   const statusChartItems = [
     {
@@ -264,7 +294,7 @@ export function Dashboard() {
       value: concluidas,
       color: "#22c55e",
     },
-  ];
+  ].filter((item) => item.value > 0);
 
   function exportarRelatorio() {
     const header = [
@@ -367,6 +397,7 @@ export function Dashboard() {
           value={projetosAtivos}
           helper={`${projetos.length - projetosAtivos} concluído(s)`}
           color="blue"
+          progress={percent(projetosAtivos, projetos.length)}
         />
 
         <KpiCard
@@ -375,14 +406,16 @@ export function Dashboard() {
           value={demandasAtivas}
           helper={`${concluidas} concluída(s)`}
           color="green"
+          progress={percent(demandasAtivas, totalDemandas)}
         />
 
         <KpiCard
           icon={<Clock3 size={22} />}
           label="Horas estimadas (TI)"
           value={`${horasEstimadas}h`}
-          helper="Soma do esforço previsto"
+          helper={`${capacidadeUtilizada}% em demandas ativas`}
           color="purple"
+          progress={capacidadeUtilizada}
         />
 
         <KpiCard
@@ -391,6 +424,7 @@ export function Dashboard() {
           value={demandasAtrasadas}
           helper={`${percent(demandasAtrasadas, totalDemandas)}% do total`}
           color="orange"
+          progress={percent(demandasAtrasadas, totalDemandas)}
         />
 
         <KpiCard
@@ -399,6 +433,7 @@ export function Dashboard() {
           value={colaboradoresAtivos}
           helper={`${colaboradores.length} perfil(is) no total`}
           color="cyan"
+          progress={percent(colaboradoresAtivos, colaboradores.length)}
         />
       </section>
 
@@ -460,10 +495,13 @@ export function Dashboard() {
               />
             </label>
 
-            <button className="flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-blue-600">
+            <Link
+              to="/novo-projeto"
+              className="flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-blue-600"
+            >
               <Plus size={16} />
               Novo Projeto
-            </button>
+            </Link>
           </div>
         </div>
 
@@ -569,12 +607,14 @@ function KpiCard({
   value,
   helper,
   color,
+  progress,
 }: {
   icon: ReactNode;
   label: string;
   value: number | string;
   helper: string;
   color: "blue" | "green" | "orange" | "purple" | "cyan";
+  progress: number;
 }) {
   const styles = {
     blue: {
@@ -616,7 +656,10 @@ function KpiCard({
       <h2 className="mt-2 text-4xl font-bold text-slate-950">{value}</h2>
       <p className="mt-3 text-sm text-slate-500">{helper}</p>
       <div className="mt-5 h-1.5 rounded-full bg-slate-100">
-        <div className={`h-1.5 w-2/5 rounded-full ${style.bar}`} />
+        <div
+          className={`h-1.5 rounded-full ${style.bar}`}
+          style={{ width: `${clampPercent(progress)}%` }}
+        />
       </div>
     </div>
   );
@@ -658,8 +701,9 @@ function DonutChart({
   items: ChartItem[];
 }) {
   let current = 0;
+  const hasVisibleItems = total > 0 && items.length > 0;
   const gradient =
-    total === 0
+    !hasVisibleItems
       ? "#e2e8f0 0deg 360deg"
       : items
           .map((item) => {
@@ -902,6 +946,23 @@ function formatProjectStatus(status: string, demandasAtivas: number) {
 
 function percent(value: number, total: number) {
   return total === 0 ? 0 : Math.round((value / total) * 100);
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.min(100, Math.max(0, value));
+}
+
+function formatAreaLabel(area: string) {
+  return area
+    .replace(/[-_]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function formatDate(value: string) {

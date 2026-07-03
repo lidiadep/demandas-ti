@@ -81,6 +81,8 @@ export type Projeto = {
   codigo?: string | null;
   area_id?: string | null;
   responsavel_id?: string | null;
+  prioridade_id?: string | null;
+  horas_estimadas?: number | string | null;
   data_inicio?: string | null;
   prazo_final?: string | null;
   created_at?: string;

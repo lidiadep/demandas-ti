@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
 import { getHomePath } from "../routes/home";
 import type { Profile } from "../types/domain";
+import fortTechLoginLogo from "../assets/forttech-login-logo.png";
 
 export function Login() {
   const navigate = useNavigate();
@@ -64,7 +65,17 @@ export function Login() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
       <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-        <p className="text-sm font-medium text-slate-500">Portal de Demandas</p>
+        <div className="flex justify-center">
+          <img
+            src={fortTechLoginLogo}
+            alt="Fort Tech Solutions"
+            className="h-40 w-auto object-contain"
+          />
+        </div>
+
+        <p className="mt-6 text-sm font-medium text-slate-500">
+          Portal de Demandas
+        </p>
 
         <h1 className="mt-2 text-3xl font-semibold text-slate-900">
           Acesse sua conta
