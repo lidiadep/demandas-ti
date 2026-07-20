@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../hooks/useAuth";
 import type {
   AreaCadastro,
   Demanda,
@@ -164,6 +165,7 @@ function getEmptyProjectDemandForm(): ProjectDemandForm {
 
 export function ProjetoDetalhes() {
   const { id } = useParams();
+  const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [projeto, setProjeto] = useState<ProjetoMetricas | null>(null);
   const [demandas, setDemandas] = useState<DemandaDetalhada[]>([]);
@@ -408,6 +410,7 @@ export function ProjetoDetalhes() {
 
     if (
       !id ||
+      !profile ||
       !selectedArea ||
       !selectedType ||
       projectDemandForm.colaboradorIds.length === 0 ||
@@ -439,6 +442,9 @@ export function ProjetoDetalhes() {
       horas_realizadas: 0,
       data_inicio: null,
       prazo_finalizacao: null,
+      origem: "gestor",
+      criada_por_profile_id: profile.id,
+      visualizada_em: null,
     }));
 
     const { error } = await supabase.from("demandas").insert(demandasParaCriar);

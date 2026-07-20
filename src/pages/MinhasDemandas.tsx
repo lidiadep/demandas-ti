@@ -127,6 +127,24 @@ export function MinhasDemandas() {
       (atualizacoesRes.data as DemandaAtualizacaoSemanal[]) ?? []
     );
     setLoading(false);
+
+    const demandasNovas = ((demandasRes.data as Demanda[]) ?? []).filter(
+      (demanda) => demanda.origem === "gestor" && !demanda.visualizada_em
+    );
+
+    if (demandasNovas.length > 0) {
+      const { error } = await supabase
+        .from("demandas")
+        .update({ visualizada_em: new Date().toISOString() })
+        .in(
+          "id",
+          demandasNovas.map((demanda) => demanda.id)
+        );
+
+      if (!error) {
+        window.dispatchEvent(new Event("demandas:notificacoes-atualizadas"));
+      }
+    }
   }, [profile]);
 
   useEffect(() => {
@@ -220,6 +238,9 @@ export function MinhasDemandas() {
   const atrasadas = demandasComContexto.filter(
     (demanda) => isOverdue(demanda) && !isDone(demanda)
   ).length;
+  const novasAtribuidas = demandasComContexto.filter(
+    (demanda) => demanda.origem === "gestor" && !demanda.visualizada_em
+  );
 
   function limparFiltros() {
     setSearchTerm("");
@@ -335,6 +356,41 @@ export function MinhasDemandas() {
         </div>
       </header>
 
+      {novasAtribuidas.length > 0 && (
+        <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase text-blue-700">
+                Novas demandas atribuídas
+              </p>
+              <h2 className="mt-2 text-xl font-bold text-slate-950">
+                {novasAtribuidas.length} nova(s) demanda(s) chegaram para você
+              </h2>
+              <p className="mt-2 text-sm font-medium text-blue-800">
+                Elas já estão na sua lista e podem ser iniciadas normalmente.
+              </p>
+            </div>
+            <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 lg:max-w-2xl">
+              {novasAtribuidas.slice(0, 3).map((demanda) => (
+                <button
+                  key={demanda.id}
+                  type="button"
+                  onClick={() => abrirAtualizacao(demanda)}
+                  className="rounded-xl border border-blue-100 bg-white px-4 py-3 text-left shadow-sm hover:border-blue-200"
+                >
+                  <span className="block text-sm font-bold text-slate-950">
+                    {demanda.titulo}
+                  </span>
+                  <span className="mt-1 block text-xs font-medium text-slate-500">
+                    {demanda.projetoNome} • {demanda.horasEstimadas}h estimadas
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-4">
         <KpiCard
           icon={<PlayCircle size={25} />}
@@ -449,7 +505,14 @@ export function MinhasDemandas() {
               {demandasFiltradas.map((demanda) => (
                 <tr key={demanda.id} className="align-middle">
                   <td className="max-w-md px-5 py-4">
-                    <p className="font-bold text-slate-950">{demanda.titulo}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-bold text-slate-950">
+                        {demanda.titulo}
+                      </p>
+                      {demanda.origem === "gestor" && (
+                        <OriginBadge visualizada={Boolean(demanda.visualizada_em)} />
+                      )}
+                    </div>
                     {demanda.descricao && (
                       <p className="mt-1 line-clamp-2 text-xs text-slate-500">
                         {demanda.descricao}
@@ -853,6 +916,20 @@ function TypeBadge({ label }: { label: string }) {
   return (
     <span className={`rounded-lg px-3 py-1 text-xs font-bold ${style}`}>
       {label}
+    </span>
+  );
+}
+
+function OriginBadge({ visualizada }: { visualizada: boolean }) {
+  return (
+    <span
+      className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
+        visualizada
+          ? "bg-slate-100 text-slate-600"
+          : "bg-blue-100 text-blue-700"
+      }`}
+    >
+      {visualizada ? "Atribuída pelo gestor" : "Nova"}
     </span>
   );
 }

@@ -2,30 +2,85 @@ import {
   BarChart3,
   ClipboardList,
   LayoutDashboard,
+  type LucideIcon,
   LogOut,
   PlusCircle,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import fortTechSidebarLogo from "../assets/forttech-sidebar-logo.jpg";
 import { useAuth } from "../hooks/useAuth";
+import { supabase } from "../lib/supabase";
+
+type NavLinkItem = {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  badge?: number;
+};
 
 export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { profile, signOut, isGestor, isColaborador } = useAuth();
+  const [novasDemandasCount, setNovasDemandasCount] = useState(0);
+
+  useEffect(() => {
+    if (!profile || !isColaborador) {
+      setNovasDemandasCount(0);
+      return;
+    }
+
+    let active = true;
+    const profileId = profile.id;
+
+    async function carregarNovasDemandas() {
+      const { count, error } = await supabase
+        .from("demandas")
+        .select("id", { count: "exact", head: true })
+        .eq("colaborador_id", profileId)
+        .eq("origem", "gestor")
+        .is("visualizada_em", null);
+
+      if (!active || error) {
+        return;
+      }
+
+      setNovasDemandasCount(count ?? 0);
+    }
+
+    void carregarNovasDemandas();
+    window.addEventListener(
+      "demandas:notificacoes-atualizadas",
+      carregarNovasDemandas
+    );
+
+    return () => {
+      active = false;
+      window.removeEventListener(
+        "demandas:notificacoes-atualizadas",
+        carregarNovasDemandas
+      );
+    };
+  }, [isColaborador, location.pathname, profile]);
 
   async function handleLogout() {
     await signOut();
     navigate("/login");
   }
 
-  const gestorLinks = [
+  const gestorLinks: NavLinkItem[] = [
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { to: "/kanban", label: "Kanban", icon: BarChart3 },
   ];
 
-  const colaboradorLinks = [
-    { to: "/minhas-demandas", label: "Minhas Demandas", icon: ClipboardList },
+  const colaboradorLinks: NavLinkItem[] = [
+    {
+      to: "/minhas-demandas",
+      label: "Minhas Demandas",
+      icon: ClipboardList,
+      badge: novasDemandasCount,
+    },
     { to: "/nova-demanda", label: "Nova Demanda", icon: PlusCircle },
   ];
 
@@ -63,7 +118,12 @@ export function AppLayout() {
                 }`}
               >
                 <Icon size={18} />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {item.badge && item.badge > 0 && (
+                  <span className="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-bold text-white">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}

@@ -107,6 +107,9 @@ export type Demanda = {
   horas_realizadas?: number | string | null;
   data_inicio?: string | null;
   ultima_atualizacao_em?: string | null;
+  origem?: "colaborador" | "gestor" | string | null;
+  criada_por_profile_id?: string | null;
+  visualizada_em?: string | null;
   created_at: string;
   updated_at?: string;
 };

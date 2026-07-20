@@ -169,6 +169,9 @@ export function NovaDemanda() {
       horas_realizadas: 0,
       data_inicio: dataInicio || null,
       prazo_finalizacao: prazo || null,
+      origem: "colaborador",
+      criada_por_profile_id: profile.id,
+      visualizada_em: new Date().toISOString(),
     });
 
     if (error) {

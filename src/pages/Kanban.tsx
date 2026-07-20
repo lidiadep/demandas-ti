@@ -18,6 +18,7 @@ import {
   Users,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../hooks/useAuth";
 import type {
   AreaCadastro,
   Cliente,
@@ -106,6 +107,7 @@ function getEmptyGestorDemandForm(): GestorDemandForm {
 }
 
 export function Kanban() {
+  const { profile } = useAuth();
   const [demandas, setDemandas] = useState<Demanda[]>([]);
   const [projetos, setProjetos] = useState<ProjetoResumo[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -505,6 +507,7 @@ export function Kanban() {
     const horasEstimadas = Number(gestorDemandForm.horasEstimadas);
 
     if (
+      !profile ||
       !gestorDemandForm.projetoId ||
       !selectedArea ||
       !selectedType ||
@@ -539,6 +542,9 @@ export function Kanban() {
       horas_realizadas: 0,
       data_inicio: null,
       prazo_finalizacao: null,
+      origem: "gestor",
+      criada_por_profile_id: profile.id,
+      visualizada_em: null,
     }));
 
     const { error } = await supabase.from("demandas").insert(demandasParaCriar);
