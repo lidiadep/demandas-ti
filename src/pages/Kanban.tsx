@@ -171,7 +171,7 @@ export function Kanban() {
       supabase.from("areas").select("id,nome,slug,cor,ativo").order("nome"),
       supabase
         .from("tipos_trabalho")
-        .select("id,nome,slug,cor,ativo")
+        .select("id,nome,slug,cor,ativo,area_id")
         .order("nome"),
     ]);
 
@@ -507,7 +507,12 @@ export function Kanban() {
     setGestorDemandForm({
       projetoId: projetos[0]?.id ?? "",
       areaId: areas.find((area) => area.ativo)?.id ?? "",
-      tipoTrabalhoId: tipos.find((tipo) => tipo.ativo)?.id ?? "",
+      tipoTrabalhoId:
+        tipos.find(
+          (tipo) => tipo.ativo && tipo.area_id === areas.find((area) => area.ativo)?.id
+        )?.id ??
+        tipos.find((tipo) => tipo.ativo)?.id ??
+        "",
       execucaoTipo: "interna",
       fornecedorId: "",
       colaboradorIds: [],
@@ -908,6 +913,10 @@ function GestorDemandModal({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const tiposDaCategoria = tipos.filter(
+    (tipo) => tipo.ativo && (!form.areaId || tipo.area_id === form.areaId)
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
       <form
@@ -955,7 +964,15 @@ function GestorDemandModal({
               <select
                 value={form.areaId}
                 onChange={(event) =>
-                  onChange({ ...form, areaId: event.target.value })
+                  onChange({
+                    ...form,
+                    areaId: event.target.value,
+                    tipoTrabalhoId:
+                      tipos.find(
+                        (tipo) =>
+                          tipo.ativo && tipo.area_id === event.target.value
+                      )?.id ?? "",
+                  })
                 }
                 className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
                 required
@@ -982,8 +999,7 @@ function GestorDemandModal({
                 required
               >
                 <option value="">Selecione</option>
-                {tipos
-                  .filter((tipo) => tipo.ativo)
+                {tiposDaCategoria
                   .map((tipo) => (
                     <option key={tipo.id} value={tipo.id}>
                       {tipo.nome}

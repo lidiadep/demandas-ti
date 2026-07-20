@@ -275,7 +275,7 @@ export function ProjetoDetalhes() {
         .order("nome", { ascending: true }),
       supabase
         .from("tipos_trabalho")
-        .select("id,nome,slug,cor,ativo")
+        .select("id,nome,slug,cor,ativo,area_id")
         .eq("ativo", true)
         .order("nome", { ascending: true }),
       supabase
@@ -824,6 +824,10 @@ function ProjectDemandCreatePanel({
   onFormChange: (form: ProjectDemandForm) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const tiposDaCategoria = tipos.filter(
+    (tipo) => tipo.ativo && (!form.areaId || tipo.area_id === form.areaId)
+  );
+
   return (
     <Panel title="Incluir demanda no projeto">
       <form onSubmit={onSubmit} className="space-y-4">
@@ -839,7 +843,14 @@ function ProjectDemandCreatePanel({
             <select
               value={form.areaId}
               onChange={(event) =>
-                onFormChange({ ...form, areaId: event.target.value })
+                onFormChange({
+                  ...form,
+                  areaId: event.target.value,
+                  tipoTrabalhoId:
+                    tipos.find(
+                      (tipo) => tipo.ativo && tipo.area_id === event.target.value
+                    )?.id ?? "",
+                })
               }
               className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
               required
@@ -864,7 +875,7 @@ function ProjectDemandCreatePanel({
               required
             >
               <option value="">Selecione</option>
-              {tipos.map((tipo) => (
+              {tiposDaCategoria.map((tipo) => (
                 <option key={tipo.id} value={tipo.id}>
                   {tipo.nome}
                 </option>

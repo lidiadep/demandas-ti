@@ -91,7 +91,7 @@ export function MinhasDemandas() {
         supabase.from("projetos").select("id,nome,codigo").order("nome"),
         supabase
           .from("tipos_trabalho")
-          .select("id,nome,slug,ativo")
+          .select("id,nome,slug,ativo,area_id")
           .order("nome"),
         supabase
           .from("demanda_atualizacoes_semanais")

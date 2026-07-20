@@ -60,6 +60,7 @@ export type TipoTrabalho = {
   slug: string;
   cor: string | null;
   ativo: boolean;
+  area_id?: string | null;
 };
 
 export type PrioridadeCadastro = {

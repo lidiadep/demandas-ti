@@ -56,6 +56,13 @@ export function NovaDemanda() {
   const selectedPriority = prioridades.find(
     (prioridade) => prioridade.id === prioridadeId
   );
+  const filteredTiposTrabalho = useMemo(
+    () =>
+      tiposTrabalho.filter(
+        (tipo) => tipo.ativo && (!areaId || tipo.area_id === areaId)
+      ),
+    [areaId, tiposTrabalho]
+  );
 
   const canSubmit = Boolean(
     projetoId &&
@@ -83,7 +90,7 @@ export function NovaDemanda() {
         .order("nome", { ascending: true }),
       supabase
         .from("tipos_trabalho")
-        .select("id,nome,slug,cor,ativo")
+        .select("id,nome,slug,cor,ativo,area_id")
         .eq("ativo", true)
         .order("nome", { ascending: true }),
       supabase
@@ -117,7 +124,11 @@ export function NovaDemanda() {
     setPrioridades(prioridadesAtivas);
     setProjetoId(projetosAtivos[0]?.id ?? "");
     setAreaId(areasAtivas[0]?.id ?? "");
-    setTipoTrabalhoId(tiposAtivos[0]?.id ?? "");
+    setTipoTrabalhoId(
+      tiposAtivos.find((tipo) => tipo.area_id === areasAtivas[0]?.id)?.id ??
+        tiposAtivos[0]?.id ??
+        ""
+    );
     setPrioridadeId(
       prioridadesAtivas.find((prioridade) => prioridade.slug === "media")?.id ??
         prioridadesAtivas[0]?.id ??
@@ -125,6 +136,17 @@ export function NovaDemanda() {
     );
     setLoadingOptions(false);
   }, []);
+
+  useEffect(() => {
+    if (!areaId || filteredTiposTrabalho.length === 0) {
+      setTipoTrabalhoId("");
+      return;
+    }
+
+    if (!filteredTiposTrabalho.some((tipo) => tipo.id === tipoTrabalhoId)) {
+      setTipoTrabalhoId(filteredTiposTrabalho[0].id);
+    }
+  }, [areaId, filteredTiposTrabalho, tipoTrabalhoId]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -262,7 +284,7 @@ export function NovaDemanda() {
                   onChange={(event) => setTipoTrabalhoId(event.target.value)}
                   required
                 >
-                  {tiposTrabalho.map((tipo) => (
+                  {filteredTiposTrabalho.map((tipo) => (
                     <option key={tipo.id} value={tipo.id}>
                       {tipo.nome}
                     </option>
