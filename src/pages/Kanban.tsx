@@ -23,6 +23,7 @@ import type {
   AreaCadastro,
   Cliente,
   Demanda,
+  Fornecedor,
   Profile,
   Projeto,
   TipoTrabalho,
@@ -40,6 +41,8 @@ type GestorDemandForm = {
   projetoId: string;
   areaId: string;
   tipoTrabalhoId: string;
+  execucaoTipo: "interna" | "externa";
+  fornecedorId: string;
   colaboradorIds: string[];
   titulo: string;
   descricao: string;
@@ -57,6 +60,8 @@ type DemandaCard = Demanda & {
   responsavelAvatar: string | null;
   prioridadeNome: string;
   prioridadeSlug: string;
+  execucaoLabel: string;
+  fornecedorNome: string | null;
   horasEstimadas: number;
   horasRealizadas: number;
   late: boolean;
@@ -99,6 +104,8 @@ function getEmptyGestorDemandForm(): GestorDemandForm {
     projetoId: "",
     areaId: "",
     tipoTrabalhoId: "",
+    execucaoTipo: "interna",
+    fornecedorId: "",
     colaboradorIds: [],
     titulo: "",
     descricao: "",
@@ -112,6 +119,7 @@ export function Kanban() {
   const [projetos, setProjetos] = useState<ProjetoResumo[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [colaboradores, setColaboradores] = useState<ColaboradorResumo[]>([]);
+  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [areas, setAreas] = useState<AreaCadastro[]>([]);
   const [tipos, setTipos] = useState<TipoTrabalho[]>([]);
   const [loading, setLoading] = useState(true);
@@ -145,6 +153,7 @@ export function Kanban() {
       projetosRes,
       clientesRes,
       colaboradoresRes,
+      fornecedoresRes,
       areasRes,
       tiposRes,
     ] = await Promise.all([
@@ -158,6 +167,7 @@ export function Kanban() {
         .from("profiles")
         .select("id,nome,avatar_url,ativo,area_id,role")
         .order("nome"),
+      supabase.from("fornecedores").select("id,nome,tipo,contato,ativo").order("nome"),
       supabase.from("areas").select("id,nome,slug,cor,ativo").order("nome"),
       supabase
         .from("tipos_trabalho")
@@ -170,6 +180,7 @@ export function Kanban() {
       ["projetos", projetosRes.error],
       ["clientes", clientesRes.error],
       ["profiles", colaboradoresRes.error],
+      ["fornecedores", fornecedoresRes.error],
       ["areas", areasRes.error],
       ["tipos_trabalho", tiposRes.error],
     ].filter(([, error]) => Boolean(error));
@@ -191,6 +202,7 @@ export function Kanban() {
     setProjetos((projetosRes.data as ProjetoResumo[]) ?? []);
     setClientes((clientesRes.data as Cliente[]) ?? []);
     setColaboradores((colaboradoresRes.data as ColaboradorResumo[]) ?? []);
+    setFornecedores((fornecedoresRes.data as Fornecedor[]) ?? []);
     setAreas((areasRes.data as AreaCadastro[]) ?? []);
     setTipos((tiposRes.data as TipoTrabalho[]) ?? []);
     setLoading(false);
@@ -232,6 +244,11 @@ export function Kanban() {
     [tipos]
   );
 
+  const fornecedoresMap = useMemo(
+    () => new Map(fornecedores.map((fornecedor) => [fornecedor.id, fornecedor])),
+    [fornecedores]
+  );
+
   const colaboradoresAtivos = useMemo(
     () =>
       colaboradores.filter(
@@ -264,6 +281,9 @@ export function Kanban() {
         : null;
       const areaSlug = areaCadastro?.slug ?? demanda.area ?? "desenvolvimento";
       const prioridadeSlug = String(demanda.prioridade ?? "media").toLowerCase();
+      const fornecedor = demanda.fornecedor_id
+        ? fornecedoresMap.get(demanda.fornecedor_id)
+        : null;
       const late = isLate(demanda);
 
       return {
@@ -278,13 +298,23 @@ export function Kanban() {
         responsavelAvatar: responsavel?.avatar_url ?? null,
         prioridadeNome: priorityFallbackLabels[prioridadeSlug] ?? prioridadeSlug,
         prioridadeSlug,
+        execucaoLabel: getExecutionLabel(demanda.execucao_tipo),
+        fornecedorNome: fornecedor?.nome ?? null,
         horasEstimadas: getEstimatedHours(demanda),
         horasRealizadas: getWorkedHours(demanda),
         late,
         boardColumnId: getBoardColumnId(demanda.status),
       };
     });
-  }, [areasMap, clientesMap, colaboradoresMap, demandas, projetosMap, tiposMap]);
+  }, [
+    areasMap,
+    clientesMap,
+    colaboradoresMap,
+    demandas,
+    fornecedoresMap,
+    projetosMap,
+    tiposMap,
+  ]);
 
   const demandasFiltradas = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -478,6 +508,8 @@ export function Kanban() {
       projetoId: projetos[0]?.id ?? "",
       areaId: areas.find((area) => area.ativo)?.id ?? "",
       tipoTrabalhoId: tipos.find((tipo) => tipo.ativo)?.id ?? "",
+      execucaoTipo: "interna",
+      fornecedorId: "",
       colaboradorIds: [],
       titulo: "",
       descricao: "",
@@ -511,11 +543,13 @@ export function Kanban() {
       !gestorDemandForm.projetoId ||
       !selectedArea ||
       !selectedType ||
+      (gestorDemandForm.execucaoTipo === "externa" &&
+        !gestorDemandForm.fornecedorId) ||
       gestorDemandForm.colaboradorIds.length === 0 ||
       !gestorDemandForm.titulo.trim()
     ) {
       setGestorDemandError(
-        "Preencha projeto, categoria, tipo, responsável e título."
+        "Preencha projeto, categoria, tipo, execução, responsável e título."
       );
       return;
     }
@@ -545,6 +579,11 @@ export function Kanban() {
       origem: "gestor",
       criada_por_profile_id: profile.id,
       visualizada_em: null,
+      execucao_tipo: gestorDemandForm.execucaoTipo,
+      fornecedor_id:
+        gestorDemandForm.execucaoTipo === "externa"
+          ? gestorDemandForm.fornecedorId
+          : null,
     }));
 
     const { error } = await supabase.from("demandas").insert(demandasParaCriar);
@@ -831,6 +870,7 @@ export function Kanban() {
           projetos={projetos}
           areas={areas}
           tipos={tipos}
+          fornecedores={fornecedores.filter((fornecedor) => fornecedor.ativo)}
           colaboradores={colaboradoresAtivos}
           errorMessage={gestorDemandError}
           saving={creatingGestorDemand}
@@ -848,6 +888,7 @@ function GestorDemandModal({
   projetos,
   areas,
   tipos,
+  fornecedores,
   colaboradores,
   errorMessage,
   saving,
@@ -859,6 +900,7 @@ function GestorDemandModal({
   projetos: ProjetoResumo[];
   areas: AreaCadastro[];
   tipos: TipoTrabalho[];
+  fornecedores: Fornecedor[];
   colaboradores: ColaboradorResumo[];
   errorMessage: string;
   saving: boolean;
@@ -964,6 +1006,49 @@ function GestorDemandModal({
                 required
               />
             </label>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <label className="block text-sm font-semibold text-slate-700">
+              Execução *
+              <select
+                value={form.execucaoTipo}
+                onChange={(event) =>
+                  onChange({
+                    ...form,
+                    execucaoTipo: event.target.value as "interna" | "externa",
+                    fornecedorId:
+                      event.target.value === "externa" ? form.fornecedorId : "",
+                  })
+                }
+                className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                required
+              >
+                <option value="interna">Interna</option>
+                <option value="externa">Externa</option>
+              </select>
+            </label>
+
+            {form.execucaoTipo === "externa" && (
+              <label className="block text-sm font-semibold text-slate-700">
+                Fornecedor *
+                <select
+                  value={form.fornecedorId}
+                  onChange={(event) =>
+                    onChange({ ...form, fornecedorId: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {fornecedores.map((fornecedor) => (
+                    <option key={fornecedor.id} value={fornecedor.id}>
+                      {fornecedor.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
 
           <label className="block text-sm font-semibold text-slate-700">
@@ -1088,6 +1173,7 @@ function DemandasTable({
               <th className="px-5 py-4">Demanda</th>
               <th className="px-5 py-4">Projeto</th>
               <th className="px-5 py-4">Responsável</th>
+              <th className="px-5 py-4">Execução</th>
               <th className="px-5 py-4">Status</th>
               <th className="px-5 py-4">Prazo</th>
               <th className="px-5 py-4">Prioridade</th>
@@ -1119,6 +1205,12 @@ function DemandasTable({
                       </span>
                     </span>
                   </div>
+                </td>
+                <td className="px-5 py-4">
+                  <ExecutionBadge
+                    label={demanda.execucaoLabel}
+                    fornecedor={demanda.fornecedorNome}
+                  />
                 </td>
                 <td className="px-5 py-4">
                   <div className="flex items-center gap-3">
@@ -1282,6 +1374,10 @@ function KanbanCard({ demanda }: { demanda: DemandaCard }) {
       <div className="mt-4 flex flex-wrap gap-2">
         <Avatar name={demanda.responsavelNome} src={demanda.responsavelAvatar} />
         <AreaBadge area={demanda.areaSlug} label={demanda.areaNome} />
+        <ExecutionBadge
+          label={demanda.execucaoLabel}
+          fornecedor={demanda.fornecedorNome}
+        />
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-3 text-sm font-medium">
@@ -1456,6 +1552,27 @@ function AreaBadge({ area, label }: { area: string; label: string }) {
   );
 }
 
+function ExecutionBadge({
+  label,
+  fornecedor,
+}: {
+  label: string;
+  fornecedor: string | null;
+}) {
+  const externa = label === "Externa";
+
+  return (
+    <span
+      className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
+        externa ? "bg-violet-50 text-violet-700" : "bg-slate-100 text-slate-700"
+      }`}
+      title={fornecedor ?? label}
+    >
+      {fornecedor ? `${label}: ${fornecedor}` : label}
+    </span>
+  );
+}
+
 function DemandStatusBadge({
   status,
   late,
@@ -1606,6 +1723,10 @@ function normalizeStatus(status: string) {
 
 function getAreaLabel(area: string) {
   return areaFallbackLabels[area] ?? area;
+}
+
+function getExecutionLabel(value?: string | null) {
+  return value === "externa" ? "Externa" : "Interna";
 }
 
 function getEstimatedHours(demanda: Demanda) {

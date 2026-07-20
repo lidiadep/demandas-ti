@@ -20,6 +20,7 @@ import { useAuth } from "../hooks/useAuth";
 import type {
   AreaCadastro,
   Demanda,
+  Fornecedor,
   Profile,
   ProjetoMembro,
   TipoTrabalho,
@@ -68,6 +69,8 @@ type DemandaDetalhada = Pick<
   | "projeto_id"
   | "colaborador_id"
   | "prioridade"
+  | "execucao_tipo"
+  | "fornecedor_id"
 > & {
   area_nome: string | null;
   area_slug: string | null;
@@ -75,6 +78,7 @@ type DemandaDetalhada = Pick<
   prioridade_nome: string | null;
   prioridade_slug: string | null;
   responsavel_nome: string | null;
+  fornecedor_nome: string | null;
 };
 
 type ProfileResumo = Pick<Profile, "id" | "nome" | "cargo" | "avatar_url">;
@@ -146,6 +150,8 @@ const fallbackAreas = [
 type ProjectDemandForm = {
   areaId: string;
   tipoTrabalhoId: string;
+  execucaoTipo: "interna" | "externa";
+  fornecedorId: string;
   colaboradorIds: string[];
   titulo: string;
   descricao: string;
@@ -156,6 +162,8 @@ function getEmptyProjectDemandForm(): ProjectDemandForm {
   return {
     areaId: "",
     tipoTrabalhoId: "",
+    execucaoTipo: "interna",
+    fornecedorId: "",
     colaboradorIds: [],
     titulo: "",
     descricao: "",
@@ -175,6 +183,7 @@ export function ProjetoDetalhes() {
   const [historico, setHistorico] = useState<ProjetoHistorico[]>([]);
   const [areas, setAreas] = useState<AreaCadastro[]>([]);
   const [tipos, setTipos] = useState<TipoTrabalho[]>([]);
+  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [colaboradores, setColaboradores] = useState<ColaboradorCategoria[]>([]);
   const [projectDemandForm, setProjectDemandForm] =
     useState<ProjectDemandForm>(getEmptyProjectDemandForm);
@@ -201,6 +210,7 @@ export function ProjetoDetalhes() {
       historicoRes,
       areasRes,
       tiposRes,
+      fornecedoresRes,
       colaboradoresRes,
     ] = await Promise.all([
       supabase.from("vw_projetos_metricas").select("*").eq("id", id).single(),
@@ -269,6 +279,11 @@ export function ProjetoDetalhes() {
         .eq("ativo", true)
         .order("nome", { ascending: true }),
       supabase
+        .from("fornecedores")
+        .select("id,nome,tipo,contato,ativo")
+        .eq("ativo", true)
+        .order("nome", { ascending: true }),
+      supabase
         .from("profiles")
         .select("id,nome,ativo,area_id,role")
         .eq("ativo", true)
@@ -303,6 +318,7 @@ export function ProjetoDetalhes() {
         ["projeto_status_historico", historicoRes.error],
         ["areas", areasRes.error],
         ["tipos_trabalho", tiposRes.error],
+        ["fornecedores", fornecedoresRes.error],
         ["profiles", colaboradoresRes.error],
       ].filter(([, error]) => Boolean(error));
 
@@ -322,6 +338,7 @@ export function ProjetoDetalhes() {
     setHistorico((historicoRes.data as ProjetoHistorico[]) ?? []);
     setAreas((areasRes.data as AreaCadastro[]) ?? []);
     setTipos((tiposRes.data as TipoTrabalho[]) ?? []);
+    setFornecedores((fornecedoresRes.data as Fornecedor[]) ?? []);
     setColaboradores((colaboradoresRes.data as ColaboradorCategoria[]) ?? []);
     setLoading(false);
   }, [id]);
@@ -413,10 +430,14 @@ export function ProjetoDetalhes() {
       !profile ||
       !selectedArea ||
       !selectedType ||
+      (projectDemandForm.execucaoTipo === "externa" &&
+        !projectDemandForm.fornecedorId) ||
       projectDemandForm.colaboradorIds.length === 0 ||
       !projectDemandForm.titulo.trim()
     ) {
-      setProjectDemandError("Preencha categoria, tipo, responsável e título.");
+      setProjectDemandError(
+        "Preencha categoria, tipo, execução, responsável e título."
+      );
       return;
     }
 
@@ -445,6 +466,11 @@ export function ProjetoDetalhes() {
       origem: "gestor",
       criada_por_profile_id: profile.id,
       visualizada_em: null,
+      execucao_tipo: projectDemandForm.execucaoTipo,
+      fornecedor_id:
+        projectDemandForm.execucaoTipo === "externa"
+          ? projectDemandForm.fornecedorId
+          : null,
     }));
 
     const { error } = await supabase.from("demandas").insert(demandasParaCriar);
@@ -606,6 +632,7 @@ export function ProjetoDetalhes() {
           form={projectDemandForm}
           areas={areas}
           tipos={tipos}
+          fornecedores={fornecedores}
           colaboradores={colaboradoresAtivos}
           errorMessage={projectDemandError}
           saving={savingProjectDemand}
@@ -780,6 +807,7 @@ function ProjectDemandCreatePanel({
   form,
   areas,
   tipos,
+  fornecedores,
   colaboradores,
   errorMessage,
   saving,
@@ -789,6 +817,7 @@ function ProjectDemandCreatePanel({
   form: ProjectDemandForm;
   areas: AreaCadastro[];
   tipos: TipoTrabalho[];
+  fornecedores: Fornecedor[];
   colaboradores: ColaboradorCategoria[];
   errorMessage: string;
   saving: boolean;
@@ -884,6 +913,49 @@ function ProjectDemandCreatePanel({
           </label>
         </div>
 
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <label className="block text-sm font-semibold text-slate-700">
+            Execução *
+            <select
+              value={form.execucaoTipo}
+              onChange={(event) =>
+                onFormChange({
+                  ...form,
+                  execucaoTipo: event.target.value as "interna" | "externa",
+                  fornecedorId:
+                    event.target.value === "externa" ? form.fornecedorId : "",
+                })
+              }
+              className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+              required
+            >
+              <option value="interna">Interna</option>
+              <option value="externa">Externa</option>
+            </select>
+          </label>
+
+          {form.execucaoTipo === "externa" && (
+            <label className="block text-sm font-semibold text-slate-700">
+              Fornecedor *
+              <select
+                value={form.fornecedorId}
+                onChange={(event) =>
+                  onFormChange({ ...form, fornecedorId: event.target.value })
+                }
+                className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                required
+              >
+                <option value="">Selecione</option>
+                {fornecedores.map((fornecedor) => (
+                  <option key={fornecedor.id} value={fornecedor.id}>
+                    {fornecedor.nome}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+
         <fieldset className="rounded-xl border border-slate-200 p-4">
           <legend className="px-1 text-sm font-semibold text-slate-700">
             Responsáveis *
@@ -949,6 +1021,7 @@ function DemandasTab({
   form,
   areas,
   tipos,
+  fornecedores,
   colaboradores,
   errorMessage,
   saving,
@@ -959,6 +1032,7 @@ function DemandasTab({
   form: ProjectDemandForm;
   areas: AreaCadastro[];
   tipos: TipoTrabalho[];
+  fornecedores: Fornecedor[];
   colaboradores: ColaboradorCategoria[];
   errorMessage: string;
   saving: boolean;
@@ -971,6 +1045,7 @@ function DemandasTab({
         form={form}
         areas={areas}
         tipos={tipos}
+        fornecedores={fornecedores}
         colaboradores={colaboradores}
         errorMessage={errorMessage}
         saving={saving}
@@ -986,6 +1061,7 @@ function DemandasTab({
               <th className="px-5 py-4">Demanda</th>
               <th className="px-5 py-4">Área</th>
               <th className="px-5 py-4">Tipo</th>
+              <th className="px-5 py-4">Execução</th>
               <th className="px-5 py-4">Status</th>
               <th className="px-5 py-4">Prioridade</th>
               <th className="px-5 py-4">Horas</th>
@@ -1012,6 +1088,9 @@ function DemandasTab({
                 </td>
                 <td className="px-5 py-4 text-slate-700">
                   {demanda.tipo_trabalho_nome ?? "-"}
+                </td>
+                <td className="px-5 py-4">
+                  <ExecutionBadge demanda={demanda} />
                 </td>
                 <td className="px-5 py-4">
                   <DemandStatusBadge status={demanda.status} />
@@ -1507,6 +1586,22 @@ function AreaBadge({ slug, label }: { slug: string; label: string }) {
       }`}
     >
       {label}
+    </span>
+  );
+}
+
+function ExecutionBadge({ demanda }: { demanda: DemandaDetalhada }) {
+  const externa = demanda.execucao_tipo === "externa";
+  const label = externa ? "Externa" : "Interna";
+
+  return (
+    <span
+      className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
+        externa ? "bg-violet-50 text-violet-700" : "bg-slate-100 text-slate-700"
+      }`}
+      title={demanda.fornecedor_nome ?? label}
+    >
+      {demanda.fornecedor_nome ? `${label}: ${demanda.fornecedor_nome}` : label}
     </span>
   );
 }

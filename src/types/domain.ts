@@ -72,6 +72,14 @@ export type PrioridadeCadastro = {
   ativo: boolean;
 };
 
+export type Fornecedor = {
+  id: string;
+  nome: string;
+  tipo?: string | null;
+  contato?: string | null;
+  ativo: boolean;
+};
+
 export type Projeto = {
   id: string;
   cliente_id: string;
@@ -110,6 +118,8 @@ export type Demanda = {
   origem?: "colaborador" | "gestor" | string | null;
   criada_por_profile_id?: string | null;
   visualizada_em?: string | null;
+  execucao_tipo?: "interna" | "externa" | string | null;
+  fornecedor_id?: string | null;
   created_at: string;
   updated_at?: string;
 };

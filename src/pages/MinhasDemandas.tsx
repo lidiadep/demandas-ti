@@ -478,6 +478,7 @@ export function MinhasDemandas() {
                 <th className="px-5 py-4">Projeto</th>
                 <th className="px-5 py-4">Tipo</th>
                 <th className="px-5 py-4">Origem</th>
+                <th className="px-5 py-4">Execução</th>
                 <th className="px-5 py-4">Status</th>
                 <th className="px-5 py-4">Horas Est.</th>
                 <th className="px-5 py-4">Prazo</th>
@@ -516,6 +517,9 @@ export function MinhasDemandas() {
                   </td>
                   <td className="px-5 py-4">
                     <OriginBadge demanda={demanda} />
+                  </td>
+                  <td className="px-5 py-4">
+                    <ExecutionBadge value={demanda.execucao_tipo} />
                   </td>
                   <td className="px-5 py-4">
                     <StatusBadge status={demanda.status} />
@@ -921,6 +925,20 @@ function OriginBadge({ demanda }: { demanda: Demanda }) {
       }`}
     >
       {pendente ? "Nova do gestor" : "Atribuída pelo gestor"}
+    </span>
+  );
+}
+
+function ExecutionBadge({ value }: { value?: string | null }) {
+  const externa = value === "externa";
+
+  return (
+    <span
+      className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
+        externa ? "bg-violet-50 text-violet-700" : "bg-slate-100 text-slate-700"
+      }`}
+    >
+      {externa ? "Externa" : "Interna"}
     </span>
   );
 }

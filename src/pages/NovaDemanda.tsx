@@ -172,6 +172,8 @@ export function NovaDemanda() {
       origem: "colaborador",
       criada_por_profile_id: profile.id,
       visualizada_em: new Date().toISOString(),
+      execucao_tipo: "interna",
+      fornecedor_id: null,
     });
 
     if (error) {
