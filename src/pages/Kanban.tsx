@@ -39,6 +39,7 @@ type GestorDemandForm = {
   projetoId: string;
   areaId: string;
   tipoTrabalhoId: string;
+  colaboradorIds: string[];
   titulo: string;
   descricao: string;
   horasEstimadas: string;
@@ -97,6 +98,7 @@ function getEmptyGestorDemandForm(): GestorDemandForm {
     projetoId: "",
     areaId: "",
     tipoTrabalhoId: "",
+    colaboradorIds: [],
     titulo: "",
     descricao: "",
     horasEstimadas: "",
@@ -228,18 +230,22 @@ export function Kanban() {
     [tipos]
   );
 
-  const colaboradoresDaCategoria = useMemo(() => {
-    if (!gestorDemandForm.areaId) {
-      return [];
-    }
+  const colaboradoresAtivos = useMemo(
+    () =>
+      colaboradores.filter(
+        (colaborador) =>
+          colaborador.ativo && colaborador.role === "COLABORADOR"
+      ),
+    [colaboradores]
+  );
 
-    return colaboradores.filter(
-      (colaborador) =>
-        colaborador.ativo &&
-        colaborador.role === "COLABORADOR" &&
-        colaborador.area_id === gestorDemandForm.areaId
-    );
-  }, [colaboradores, gestorDemandForm.areaId]);
+  const colaboradoresSelecionados = useMemo(
+    () =>
+      colaboradoresAtivos.filter((colaborador) =>
+        gestorDemandForm.colaboradorIds.includes(colaborador.id)
+      ),
+    [colaboradoresAtivos, gestorDemandForm.colaboradorIds]
+  );
 
   const demandasComContexto = useMemo<DemandaCard[]>(() => {
     return demandas.map((demanda) => {
@@ -470,6 +476,7 @@ export function Kanban() {
       projetoId: projetos[0]?.id ?? "",
       areaId: areas.find((area) => area.ativo)?.id ?? "",
       tipoTrabalhoId: tipos.find((tipo) => tipo.ativo)?.id ?? "",
+      colaboradorIds: [],
       titulo: "",
       descricao: "",
       horasEstimadas: "",
@@ -501,9 +508,12 @@ export function Kanban() {
       !gestorDemandForm.projetoId ||
       !selectedArea ||
       !selectedType ||
+      gestorDemandForm.colaboradorIds.length === 0 ||
       !gestorDemandForm.titulo.trim()
     ) {
-      setGestorDemandError("Preencha projeto, categoria, tipo e título.");
+      setGestorDemandError(
+        "Preencha projeto, categoria, tipo, responsável e título."
+      );
       return;
     }
 
@@ -512,16 +522,9 @@ export function Kanban() {
       return;
     }
 
-    if (colaboradoresDaCategoria.length === 0) {
-      setGestorDemandError(
-        "Nenhum colaborador ativo foi encontrado para esta categoria."
-      );
-      return;
-    }
-
     setCreatingGestorDemand(true);
 
-    const demandasParaCriar = colaboradoresDaCategoria.map((colaborador) => ({
+    const demandasParaCriar = colaboradoresSelecionados.map((colaborador) => ({
       projeto_id: gestorDemandForm.projetoId,
       colaborador_id: colaborador.id,
       titulo: gestorDemandForm.titulo.trim(),
@@ -822,7 +825,7 @@ export function Kanban() {
           projetos={projetos}
           areas={areas}
           tipos={tipos}
-          colaboradoresDaCategoria={colaboradoresDaCategoria}
+          colaboradores={colaboradoresAtivos}
           errorMessage={gestorDemandError}
           saving={creatingGestorDemand}
           onChange={setGestorDemandForm}
@@ -839,7 +842,7 @@ function GestorDemandModal({
   projetos,
   areas,
   tipos,
-  colaboradoresDaCategoria,
+  colaboradores,
   errorMessage,
   saving,
   onChange,
@@ -850,7 +853,7 @@ function GestorDemandModal({
   projetos: ProjetoResumo[];
   areas: AreaCadastro[];
   tipos: TipoTrabalho[];
-  colaboradoresDaCategoria: ColaboradorResumo[];
+  colaboradores: ColaboradorResumo[];
   errorMessage: string;
   saving: boolean;
   onChange: (form: GestorDemandForm) => void;
@@ -868,7 +871,7 @@ function GestorDemandModal({
             Nova demanda por categoria
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            A demanda será criada para cada colaborador ativo da categoria.
+            Selecione os colaboradores que devem receber esta demanda.
           </p>
         </div>
 
@@ -981,10 +984,50 @@ function GestorDemandModal({
             />
           </label>
 
+          <fieldset className="rounded-xl border border-slate-200 p-4">
+            <legend className="px-1 text-sm font-semibold text-slate-700">
+              Responsáveis *
+            </legend>
+            <div className="mt-3 grid max-h-44 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+              {colaboradores.map((colaborador) => {
+                const checked = form.colaboradorIds.includes(colaborador.id);
+
+                return (
+                  <label
+                    key={colaborador.id}
+                    className="flex items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(event) =>
+                        onChange({
+                          ...form,
+                          colaboradorIds: event.target.checked
+                            ? [...form.colaboradorIds, colaborador.id]
+                            : form.colaboradorIds.filter(
+                                (id) => id !== colaborador.id
+                              ),
+                        })
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                    />
+                    {colaborador.nome}
+                  </label>
+                );
+              })}
+            </div>
+            {colaboradores.length === 0 && (
+              <p className="mt-3 text-sm font-medium text-slate-500">
+                Nenhum colaborador ativo encontrado.
+              </p>
+            )}
+          </fieldset>
+
           <div className="rounded-xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
-            {colaboradoresDaCategoria.length > 0
-              ? `${colaboradoresDaCategoria.length} colaborador(es) ativo(s) receberão esta demanda.`
-              : "Nenhum colaborador ativo encontrado para a categoria selecionada."}
+            {form.colaboradorIds.length > 0
+              ? `${form.colaboradorIds.length} colaborador(es) selecionado(s) receberão esta demanda.`
+              : "Selecione ao menos um colaborador para receber esta demanda."}
           </div>
         </div>
 

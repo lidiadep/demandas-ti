@@ -145,6 +145,7 @@ const fallbackAreas = [
 type ProjectDemandForm = {
   areaId: string;
   tipoTrabalhoId: string;
+  colaboradorIds: string[];
   titulo: string;
   descricao: string;
   horasEstimadas: string;
@@ -154,6 +155,7 @@ function getEmptyProjectDemandForm(): ProjectDemandForm {
   return {
     areaId: "",
     tipoTrabalhoId: "",
+    colaboradorIds: [],
     titulo: "",
     descricao: "",
     horasEstimadas: "",
@@ -372,18 +374,22 @@ export function ProjetoDetalhes() {
     "Não definida";
   const radarItems = useMemo(() => buildRadarItems(demandas), [demandas]);
   const areaMetrics = useMemo(() => getAreaMetrics(demandas), [demandas]);
-  const colaboradoresDaCategoria = useMemo(() => {
-    if (!projectDemandForm.areaId) {
-      return [];
-    }
+  const colaboradoresAtivos = useMemo(
+    () =>
+      colaboradores.filter(
+        (colaborador) =>
+          colaborador.ativo && colaborador.role === "COLABORADOR"
+      ),
+    [colaboradores]
+  );
 
-    return colaboradores.filter(
-      (colaborador) =>
-        colaborador.ativo &&
-        colaborador.role === "COLABORADOR" &&
-        colaborador.area_id === projectDemandForm.areaId
-    );
-  }, [colaboradores, projectDemandForm.areaId]);
+  const colaboradoresSelecionados = useMemo(
+    () =>
+      colaboradoresAtivos.filter((colaborador) =>
+        projectDemandForm.colaboradorIds.includes(colaborador.id)
+      ),
+    [colaboradoresAtivos, projectDemandForm.colaboradorIds]
+  );
 
   function updateProjectDemandForm(form: ProjectDemandForm) {
     setProjectDemandForm(form);
@@ -400,8 +406,14 @@ export function ProjetoDetalhes() {
     );
     const horasEstimadas = Number(projectDemandForm.horasEstimadas);
 
-    if (!id || !selectedArea || !selectedType || !projectDemandForm.titulo.trim()) {
-      setProjectDemandError("Preencha categoria, tipo e título.");
+    if (
+      !id ||
+      !selectedArea ||
+      !selectedType ||
+      projectDemandForm.colaboradorIds.length === 0 ||
+      !projectDemandForm.titulo.trim()
+    ) {
+      setProjectDemandError("Preencha categoria, tipo, responsável e título.");
       return;
     }
 
@@ -410,16 +422,9 @@ export function ProjetoDetalhes() {
       return;
     }
 
-    if (colaboradoresDaCategoria.length === 0) {
-      setProjectDemandError(
-        "Nenhum colaborador ativo foi encontrado para esta categoria."
-      );
-      return;
-    }
-
     setSavingProjectDemand(true);
 
-    const demandasParaCriar = colaboradoresDaCategoria.map((colaborador) => ({
+    const demandasParaCriar = colaboradoresSelecionados.map((colaborador) => ({
       projeto_id: id,
       colaborador_id: colaborador.id,
       titulo: projectDemandForm.titulo.trim(),
@@ -595,7 +600,7 @@ export function ProjetoDetalhes() {
           form={projectDemandForm}
           areas={areas}
           tipos={tipos}
-          colaboradoresDaCategoria={colaboradoresDaCategoria}
+          colaboradores={colaboradoresAtivos}
           errorMessage={projectDemandError}
           saving={savingProjectDemand}
           onFormChange={updateProjectDemandForm}
@@ -769,7 +774,7 @@ function ProjectDemandCreatePanel({
   form,
   areas,
   tipos,
-  colaboradoresDaCategoria,
+  colaboradores,
   errorMessage,
   saving,
   onFormChange,
@@ -778,7 +783,7 @@ function ProjectDemandCreatePanel({
   form: ProjectDemandForm;
   areas: AreaCadastro[];
   tipos: TipoTrabalho[];
-  colaboradoresDaCategoria: ColaboradorCategoria[];
+  colaboradores: ColaboradorCategoria[];
   errorMessage: string;
   saving: boolean;
   onFormChange: (form: ProjectDemandForm) => void;
@@ -873,11 +878,51 @@ function ProjectDemandCreatePanel({
           </label>
         </div>
 
+        <fieldset className="rounded-xl border border-slate-200 p-4">
+          <legend className="px-1 text-sm font-semibold text-slate-700">
+            Responsáveis *
+          </legend>
+          <div className="mt-3 grid max-h-44 grid-cols-1 gap-2 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
+            {colaboradores.map((colaborador) => {
+              const checked = form.colaboradorIds.includes(colaborador.id);
+
+              return (
+                <label
+                  key={colaborador.id}
+                  className="flex items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) =>
+                      onFormChange({
+                        ...form,
+                        colaboradorIds: event.target.checked
+                          ? [...form.colaboradorIds, colaborador.id]
+                          : form.colaboradorIds.filter(
+                              (id) => id !== colaborador.id
+                            ),
+                      })
+                    }
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                  />
+                  {colaborador.nome}
+                </label>
+              );
+            })}
+          </div>
+          {colaboradores.length === 0 && (
+            <p className="mt-3 text-sm font-medium text-slate-500">
+              Nenhum colaborador ativo encontrado.
+            </p>
+          )}
+        </fieldset>
+
         <div className="flex flex-col gap-3 rounded-xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 md:flex-row md:items-center md:justify-between">
           <span>
-            {colaboradoresDaCategoria.length > 0
-              ? `${colaboradoresDaCategoria.length} colaborador(es) ativo(s) receberão esta demanda.`
-              : "Nenhum colaborador ativo encontrado para a categoria selecionada."}
+            {form.colaboradorIds.length > 0
+              ? `${form.colaboradorIds.length} colaborador(es) selecionado(s) receberão esta demanda.`
+              : "Selecione ao menos um colaborador para receber esta demanda."}
           </span>
           <button
             type="submit"
@@ -898,7 +943,7 @@ function DemandasTab({
   form,
   areas,
   tipos,
-  colaboradoresDaCategoria,
+  colaboradores,
   errorMessage,
   saving,
   onFormChange,
@@ -908,7 +953,7 @@ function DemandasTab({
   form: ProjectDemandForm;
   areas: AreaCadastro[];
   tipos: TipoTrabalho[];
-  colaboradoresDaCategoria: ColaboradorCategoria[];
+  colaboradores: ColaboradorCategoria[];
   errorMessage: string;
   saving: boolean;
   onFormChange: (form: ProjectDemandForm) => void;
@@ -920,7 +965,7 @@ function DemandasTab({
         form={form}
         areas={areas}
         tipos={tipos}
-        colaboradoresDaCategoria={colaboradoresDaCategoria}
+        colaboradores={colaboradores}
         errorMessage={errorMessage}
         saving={saving}
         onFormChange={onFormChange}
