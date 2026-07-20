@@ -222,7 +222,8 @@ export function MinhasDemandas() {
   ).length;
   const novasAtribuidas = demandasComContexto.filter(
     (demanda) =>
-      demanda.origem === "gestor" && normalizeStatus(demanda.status) === "pendente"
+      isDemandAssignedByManager(demanda) &&
+      normalizeStatus(demanda.status) === "pendente"
   );
 
   function limparFiltros() {
@@ -514,7 +515,7 @@ export function MinhasDemandas() {
                     <TypeBadge label={demanda.tipoNome} />
                   </td>
                   <td className="px-5 py-4">
-                    <OriginBadge origem={demanda.origem} status={demanda.status} />
+                    <OriginBadge demanda={demanda} />
                   </td>
                   <td className="px-5 py-4">
                     <StatusBadge status={demanda.status} />
@@ -901,15 +902,9 @@ function TypeBadge({ label }: { label: string }) {
   );
 }
 
-function OriginBadge({
-  origem,
-  status,
-}: {
-  origem?: string | null;
-  status: string;
-}) {
-  const atribuidaPeloGestor = origem === "gestor";
-  const pendente = normalizeStatus(status) === "pendente";
+function OriginBadge({ demanda }: { demanda: Demanda }) {
+  const atribuidaPeloGestor = isDemandAssignedByManager(demanda);
+  const pendente = normalizeStatus(demanda.status) === "pendente";
 
   if (!atribuidaPeloGestor) {
     return (
@@ -927,6 +922,16 @@ function OriginBadge({
     >
       {pendente ? "Nova do gestor" : "Atribuída pelo gestor"}
     </span>
+  );
+}
+
+function isDemandAssignedByManager(demanda: Demanda) {
+  return (
+    demanda.origem === "gestor" ||
+    Boolean(
+      demanda.criada_por_profile_id &&
+        demanda.criada_por_profile_id !== demanda.colaborador_id
+    )
   );
 }
 

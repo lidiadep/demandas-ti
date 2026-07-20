@@ -19,6 +19,13 @@ type NavLinkItem = {
   badge?: number;
 };
 
+type PendingDemandNotification = {
+  id: string;
+  origem: string | null;
+  criada_por_profile_id: string | null;
+  colaborador_id: string;
+};
+
 export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -35,18 +42,22 @@ export function AppLayout() {
     const profileId = profile.id;
 
     async function carregarNovasDemandas() {
-      const { count, error } = await supabase
+      const { data, error } = await supabase
         .from("demandas")
-        .select("id", { count: "exact", head: true })
+        .select("id,origem,criada_por_profile_id,colaborador_id")
         .eq("colaborador_id", profileId)
-        .eq("origem", "gestor")
         .eq("status", "pendente");
 
       if (!active || error) {
         return;
       }
 
-      setNovasDemandasCount(count ?? 0);
+      const demandasPendentes = (data as PendingDemandNotification[]) ?? [];
+      const atribuidasPeloGestor = demandasPendentes.filter(
+        isDemandAssignedByManager
+      );
+
+      setNovasDemandasCount(atribuidasPeloGestor.length);
     }
 
     void carregarNovasDemandas();
@@ -151,5 +162,15 @@ export function AppLayout() {
         <Outlet />
       </main>
     </div>
+  );
+}
+
+function isDemandAssignedByManager(demanda: PendingDemandNotification) {
+  return (
+    demanda.origem === "gestor" ||
+    Boolean(
+      demanda.criada_por_profile_id &&
+        demanda.criada_por_profile_id !== demanda.colaborador_id
+    )
   );
 }
