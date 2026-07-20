@@ -40,7 +40,7 @@ export function AppLayout() {
         .select("id", { count: "exact", head: true })
         .eq("colaborador_id", profileId)
         .eq("origem", "gestor")
-        .is("visualizada_em", null);
+        .eq("status", "pendente");
 
       if (!active || error) {
         return;

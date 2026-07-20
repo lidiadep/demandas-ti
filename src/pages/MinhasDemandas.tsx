@@ -127,24 +127,6 @@ export function MinhasDemandas() {
       (atualizacoesRes.data as DemandaAtualizacaoSemanal[]) ?? []
     );
     setLoading(false);
-
-    const demandasNovas = ((demandasRes.data as Demanda[]) ?? []).filter(
-      (demanda) => demanda.origem === "gestor" && !demanda.visualizada_em
-    );
-
-    if (demandasNovas.length > 0) {
-      const { error } = await supabase
-        .from("demandas")
-        .update({ visualizada_em: new Date().toISOString() })
-        .in(
-          "id",
-          demandasNovas.map((demanda) => demanda.id)
-        );
-
-      if (!error) {
-        window.dispatchEvent(new Event("demandas:notificacoes-atualizadas"));
-      }
-    }
   }, [profile]);
 
   useEffect(() => {
@@ -239,7 +221,8 @@ export function MinhasDemandas() {
     (demanda) => isOverdue(demanda) && !isDone(demanda)
   ).length;
   const novasAtribuidas = demandasComContexto.filter(
-    (demanda) => demanda.origem === "gestor" && !demanda.visualizada_em
+    (demanda) =>
+      demanda.origem === "gestor" && normalizeStatus(demanda.status) === "pendente"
   );
 
   function limparFiltros() {
@@ -304,6 +287,7 @@ export function MinhasDemandas() {
     setSaving(false);
     setSelectedDemanda(null);
     await carregarDemandas();
+    window.dispatchEvent(new Event("demandas:notificacoes-atualizadas"));
   }
 
   if (loading) {
@@ -492,6 +476,7 @@ export function MinhasDemandas() {
                 <th className="px-5 py-4">Demanda</th>
                 <th className="px-5 py-4">Projeto</th>
                 <th className="px-5 py-4">Tipo</th>
+                <th className="px-5 py-4">Origem</th>
                 <th className="px-5 py-4">Status</th>
                 <th className="px-5 py-4">Horas Est.</th>
                 <th className="px-5 py-4">Prazo</th>
@@ -505,14 +490,7 @@ export function MinhasDemandas() {
               {demandasFiltradas.map((demanda) => (
                 <tr key={demanda.id} className="align-middle">
                   <td className="max-w-md px-5 py-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-bold text-slate-950">
-                        {demanda.titulo}
-                      </p>
-                      {demanda.origem === "gestor" && (
-                        <OriginBadge visualizada={Boolean(demanda.visualizada_em)} />
-                      )}
-                    </div>
+                    <p className="font-bold text-slate-950">{demanda.titulo}</p>
                     {demanda.descricao && (
                       <p className="mt-1 line-clamp-2 text-xs text-slate-500">
                         {demanda.descricao}
@@ -534,6 +512,9 @@ export function MinhasDemandas() {
                   </td>
                   <td className="px-5 py-4">
                     <TypeBadge label={demanda.tipoNome} />
+                  </td>
+                  <td className="px-5 py-4">
+                    <OriginBadge origem={demanda.origem} status={demanda.status} />
                   </td>
                   <td className="px-5 py-4">
                     <StatusBadge status={demanda.status} />
@@ -920,16 +901,31 @@ function TypeBadge({ label }: { label: string }) {
   );
 }
 
-function OriginBadge({ visualizada }: { visualizada: boolean }) {
+function OriginBadge({
+  origem,
+  status,
+}: {
+  origem?: string | null;
+  status: string;
+}) {
+  const atribuidaPeloGestor = origem === "gestor";
+  const pendente = normalizeStatus(status) === "pendente";
+
+  if (!atribuidaPeloGestor) {
+    return (
+      <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
+        Criada por mim
+      </span>
+    );
+  }
+
   return (
     <span
       className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
-        visualizada
-          ? "bg-slate-100 text-slate-600"
-          : "bg-blue-100 text-blue-700"
+        pendente ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"
       }`}
     >
-      {visualizada ? "Atribuída pelo gestor" : "Nova"}
+      {pendente ? "Nova do gestor" : "Atribuída pelo gestor"}
     </span>
   );
 }
