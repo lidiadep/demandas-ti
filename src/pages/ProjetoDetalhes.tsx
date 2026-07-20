@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -10,12 +10,19 @@ import {
   History,
   MoreVertical,
   Pencil,
+  Plus,
   TrendingUp,
   User,
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import type { Demanda, Profile, ProjetoMembro } from "../types/domain";
+import type {
+  AreaCadastro,
+  Demanda,
+  Profile,
+  ProjetoMembro,
+  TipoTrabalho,
+} from "../types/domain";
 
 type ProjetoMetricas = {
   id: string;
@@ -70,6 +77,10 @@ type DemandaDetalhada = Pick<
 };
 
 type ProfileResumo = Pick<Profile, "id" | "nome" | "cargo" | "avatar_url">;
+type ColaboradorCategoria = Pick<
+  Profile,
+  "id" | "nome" | "ativo" | "area_id" | "role"
+>;
 
 type ProjetoMembroRow = ProjetoMembro & {
   profiles: ProfileResumo | ProfileResumo[] | null;
@@ -131,6 +142,24 @@ const fallbackAreas = [
   { label: "Produto", slug: "produto" },
 ];
 
+type ProjectDemandForm = {
+  areaId: string;
+  tipoTrabalhoId: string;
+  titulo: string;
+  descricao: string;
+  horasEstimadas: string;
+};
+
+function getEmptyProjectDemandForm(): ProjectDemandForm {
+  return {
+    areaId: "",
+    tipoTrabalhoId: "",
+    titulo: "",
+    descricao: "",
+    horasEstimadas: "",
+  };
+}
+
 export function ProjetoDetalhes() {
   const { id } = useParams();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
@@ -140,6 +169,13 @@ export function ProjetoDetalhes() {
   const [entregas, setEntregas] = useState<ProjetoEntrega[]>([]);
   const [documentos, setDocumentos] = useState<ProjetoDocumento[]>([]);
   const [historico, setHistorico] = useState<ProjetoHistorico[]>([]);
+  const [areas, setAreas] = useState<AreaCadastro[]>([]);
+  const [tipos, setTipos] = useState<TipoTrabalho[]>([]);
+  const [colaboradores, setColaboradores] = useState<ColaboradorCategoria[]>([]);
+  const [projectDemandForm, setProjectDemandForm] =
+    useState<ProjectDemandForm>(getEmptyProjectDemandForm);
+  const [projectDemandError, setProjectDemandError] = useState("");
+  const [savingProjectDemand, setSavingProjectDemand] = useState(false);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -159,6 +195,9 @@ export function ProjetoDetalhes() {
       entregasRes,
       documentosRes,
       historicoRes,
+      areasRes,
+      tiposRes,
+      colaboradoresRes,
     ] = await Promise.all([
       supabase.from("vw_projetos_metricas").select("*").eq("id", id).single(),
       supabase
@@ -215,6 +254,21 @@ export function ProjetoDetalhes() {
         )
         .eq("projeto_id", id)
         .order("created_at", { ascending: false }),
+      supabase
+        .from("areas")
+        .select("id,nome,slug,cor,ativo")
+        .eq("ativo", true)
+        .order("nome", { ascending: true }),
+      supabase
+        .from("tipos_trabalho")
+        .select("id,nome,slug,cor,ativo")
+        .eq("ativo", true)
+        .order("nome", { ascending: true }),
+      supabase
+        .from("profiles")
+        .select("id,nome,ativo,area_id,role")
+        .eq("ativo", true)
+        .order("nome", { ascending: true }),
     ]);
 
     if (projetoRes.error || demandasRes.error) {
@@ -243,6 +297,9 @@ export function ProjetoDetalhes() {
         ["projeto_entregas", entregasRes.error],
         ["projeto_documentos", documentosRes.error],
         ["projeto_status_historico", historicoRes.error],
+        ["areas", areasRes.error],
+        ["tipos_trabalho", tiposRes.error],
+        ["profiles", colaboradoresRes.error],
       ].filter(([, error]) => Boolean(error));
 
       if (optionalErrors.length > 0) {
@@ -259,6 +316,9 @@ export function ProjetoDetalhes() {
     setEntregas((entregasRes.data as ProjetoEntrega[]) ?? []);
     setDocumentos((documentosRes.data as ProjetoDocumento[]) ?? []);
     setHistorico((historicoRes.data as ProjetoHistorico[]) ?? []);
+    setAreas((areasRes.data as AreaCadastro[]) ?? []);
+    setTipos((tiposRes.data as TipoTrabalho[]) ?? []);
+    setColaboradores((colaboradoresRes.data as ColaboradorCategoria[]) ?? []);
     setLoading(false);
   }, [id]);
 
@@ -312,6 +372,82 @@ export function ProjetoDetalhes() {
     "Não definida";
   const radarItems = useMemo(() => buildRadarItems(demandas), [demandas]);
   const areaMetrics = useMemo(() => getAreaMetrics(demandas), [demandas]);
+  const colaboradoresDaCategoria = useMemo(() => {
+    if (!projectDemandForm.areaId) {
+      return [];
+    }
+
+    return colaboradores.filter(
+      (colaborador) =>
+        colaborador.ativo &&
+        colaborador.role === "COLABORADOR" &&
+        colaborador.area_id === projectDemandForm.areaId
+    );
+  }, [colaboradores, projectDemandForm.areaId]);
+
+  function updateProjectDemandForm(form: ProjectDemandForm) {
+    setProjectDemandForm(form);
+    setProjectDemandError("");
+  }
+
+  async function salvarDemandaDoProjeto(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setProjectDemandError("");
+
+    const selectedArea = areas.find((area) => area.id === projectDemandForm.areaId);
+    const selectedType = tipos.find(
+      (tipo) => tipo.id === projectDemandForm.tipoTrabalhoId
+    );
+    const horasEstimadas = Number(projectDemandForm.horasEstimadas);
+
+    if (!id || !selectedArea || !selectedType || !projectDemandForm.titulo.trim()) {
+      setProjectDemandError("Preencha categoria, tipo e título.");
+      return;
+    }
+
+    if (!Number.isFinite(horasEstimadas) || horasEstimadas <= 0) {
+      setProjectDemandError("Informe uma estimativa de horas maior que zero.");
+      return;
+    }
+
+    if (colaboradoresDaCategoria.length === 0) {
+      setProjectDemandError(
+        "Nenhum colaborador ativo foi encontrado para esta categoria."
+      );
+      return;
+    }
+
+    setSavingProjectDemand(true);
+
+    const demandasParaCriar = colaboradoresDaCategoria.map((colaborador) => ({
+      projeto_id: id,
+      colaborador_id: colaborador.id,
+      titulo: projectDemandForm.titulo.trim(),
+      descricao: projectDemandForm.descricao.trim() || null,
+      area: selectedArea.slug,
+      area_id: selectedArea.id,
+      tipo_trabalho_id: selectedType.id,
+      prioridade: "media",
+      prioridade_id: null,
+      status: "pendente",
+      horas_estimadas: horasEstimadas,
+      horas_realizadas: 0,
+      data_inicio: null,
+      prazo_finalizacao: null,
+    }));
+
+    const { error } = await supabase.from("demandas").insert(demandasParaCriar);
+
+    if (error) {
+      setProjectDemandError(`Não foi possível criar a demanda: ${error.message}`);
+      setSavingProjectDemand(false);
+      return;
+    }
+
+    setProjectDemandForm(getEmptyProjectDemandForm());
+    setSavingProjectDemand(false);
+    await carregarDados();
+  }
 
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando projeto...</p>;
@@ -453,7 +589,19 @@ export function ProjetoDetalhes() {
         />
       )}
 
-      {activeTab === "demands" && <DemandasTab demandas={demandas} />}
+      {activeTab === "demands" && (
+        <DemandasTab
+          demandas={demandas}
+          form={projectDemandForm}
+          areas={areas}
+          tipos={tipos}
+          colaboradoresDaCategoria={colaboradoresDaCategoria}
+          errorMessage={projectDemandError}
+          saving={savingProjectDemand}
+          onFormChange={updateProjectDemandForm}
+          onSubmit={salvarDemandaDoProjeto}
+        />
+      )}
       {activeTab === "team" && (
         <EquipeTab membros={membros} responsavelNome={responsavelNome} />
       )}
@@ -617,9 +765,169 @@ function OverviewTab({
   );
 }
 
-function DemandasTab({ demandas }: { demandas: DemandaDetalhada[] }) {
+function ProjectDemandCreatePanel({
+  form,
+  areas,
+  tipos,
+  colaboradoresDaCategoria,
+  errorMessage,
+  saving,
+  onFormChange,
+  onSubmit,
+}: {
+  form: ProjectDemandForm;
+  areas: AreaCadastro[];
+  tipos: TipoTrabalho[];
+  colaboradoresDaCategoria: ColaboradorCategoria[];
+  errorMessage: string;
+  saving: boolean;
+  onFormChange: (form: ProjectDemandForm) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
   return (
-    <Panel title="Demandas vinculadas">
+    <Panel title="Incluir demanda no projeto">
+      <form onSubmit={onSubmit} className="space-y-4">
+        {errorMessage && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            {errorMessage}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <label className="block text-sm font-semibold text-slate-700">
+            Categoria *
+            <select
+              value={form.areaId}
+              onChange={(event) =>
+                onFormChange({ ...form, areaId: event.target.value })
+              }
+              className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+              required
+            >
+              <option value="">Selecione</option>
+              {areas.map((area) => (
+                <option key={area.id} value={area.id}>
+                  {area.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-sm font-semibold text-slate-700">
+            Tipo *
+            <select
+              value={form.tipoTrabalhoId}
+              onChange={(event) =>
+                onFormChange({ ...form, tipoTrabalhoId: event.target.value })
+              }
+              className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+              required
+            >
+              <option value="">Selecione</option>
+              {tipos.map((tipo) => (
+                <option key={tipo.id} value={tipo.id}>
+                  {tipo.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-sm font-semibold text-slate-700 xl:col-span-2">
+            Título *
+            <input
+              value={form.titulo}
+              onChange={(event) =>
+                onFormChange({ ...form, titulo: event.target.value })
+              }
+              className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+              required
+            />
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[180px_1fr]">
+          <label className="block text-sm font-semibold text-slate-700">
+            Horas estimadas *
+            <input
+              type="number"
+              min="0.25"
+              step="0.25"
+              value={form.horasEstimadas}
+              onChange={(event) =>
+                onFormChange({ ...form, horasEstimadas: event.target.value })
+              }
+              className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+              required
+            />
+          </label>
+
+          <label className="block text-sm font-semibold text-slate-700">
+            Descrição
+            <input
+              value={form.descricao}
+              onChange={(event) =>
+                onFormChange({ ...form, descricao: event.target.value })
+              }
+              className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-col gap-3 rounded-xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 md:flex-row md:items-center md:justify-between">
+          <span>
+            {colaboradoresDaCategoria.length > 0
+              ? `${colaboradoresDaCategoria.length} colaborador(es) ativo(s) receberão esta demanda.`
+              : "Nenhum colaborador ativo encontrado para a categoria selecionada."}
+          </span>
+          <button
+            type="submit"
+            disabled={saving}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Plus size={16} />
+            {saving ? "Criando..." : "Criar demandas"}
+          </button>
+        </div>
+      </form>
+    </Panel>
+  );
+}
+
+function DemandasTab({
+  demandas,
+  form,
+  areas,
+  tipos,
+  colaboradoresDaCategoria,
+  errorMessage,
+  saving,
+  onFormChange,
+  onSubmit,
+}: {
+  demandas: DemandaDetalhada[];
+  form: ProjectDemandForm;
+  areas: AreaCadastro[];
+  tipos: TipoTrabalho[];
+  colaboradoresDaCategoria: ColaboradorCategoria[];
+  errorMessage: string;
+  saving: boolean;
+  onFormChange: (form: ProjectDemandForm) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div className="space-y-5">
+      <ProjectDemandCreatePanel
+        form={form}
+        areas={areas}
+        tipos={tipos}
+        colaboradoresDaCategoria={colaboradoresDaCategoria}
+        errorMessage={errorMessage}
+        saving={saving}
+        onFormChange={onFormChange}
+        onSubmit={onSubmit}
+      />
+
+      <Panel title="Demandas vinculadas">
       <div className="overflow-x-auto">
         <table className="min-w-[1000px] w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase text-slate-500">
@@ -677,7 +985,8 @@ function DemandasTab({ demandas }: { demandas: DemandaDetalhada[] }) {
       {demandas.length === 0 && (
         <EmptyState>Nenhuma demanda vinculada ao projeto.</EmptyState>
       )}
-    </Panel>
+      </Panel>
+    </div>
   );
 }
 

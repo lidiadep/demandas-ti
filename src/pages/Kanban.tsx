@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -28,9 +28,21 @@ import type {
 } from "../types/domain";
 
 type ProjetoResumo = Pick<Projeto, "id" | "nome" | "codigo" | "cliente_id">;
-type ColaboradorResumo = Pick<Profile, "id" | "nome" | "avatar_url" | "ativo">;
+type ColaboradorResumo = Pick<
+  Profile,
+  "id" | "nome" | "avatar_url" | "ativo" | "area_id" | "role"
+>;
 type ViewMode = "lista" | "kanban";
 type BoardColumnId = "doing" | "pending" | "blocked" | "done";
+
+type GestorDemandForm = {
+  projetoId: string;
+  areaId: string;
+  tipoTrabalhoId: string;
+  titulo: string;
+  descricao: string;
+  horasEstimadas: string;
+};
 
 type DemandaCard = Demanda & {
   areaNome: string;
@@ -80,6 +92,17 @@ const priorityFallbackLabels: Record<string, string> = {
 
 const pageSizeOptions = [5, 10, 20];
 
+function getEmptyGestorDemandForm(): GestorDemandForm {
+  return {
+    projetoId: "",
+    areaId: "",
+    tipoTrabalhoId: "",
+    titulo: "",
+    descricao: "",
+    horasEstimadas: "",
+  };
+}
+
 export function Kanban() {
   const [demandas, setDemandas] = useState<Demanda[]>([]);
   const [projetos, setProjetos] = useState<ProjetoResumo[]>([]);
@@ -102,6 +125,12 @@ export function Kanban() {
   const [showWithoutProject, setShowWithoutProject] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
+  const [gestorDemandOpen, setGestorDemandOpen] = useState(false);
+  const [gestorDemandForm, setGestorDemandForm] = useState<GestorDemandForm>(
+    getEmptyGestorDemandForm
+  );
+  const [gestorDemandError, setGestorDemandError] = useState("");
+  const [creatingGestorDemand, setCreatingGestorDemand] = useState(false);
 
   const carregarDados = useCallback(async () => {
     setLoading(true);
@@ -121,7 +150,10 @@ export function Kanban() {
         .order("prazo_finalizacao", { ascending: true }),
       supabase.from("projetos").select("id,nome,codigo,cliente_id").order("nome"),
       supabase.from("clientes").select("id,nome"),
-      supabase.from("profiles").select("id,nome,avatar_url,ativo").order("nome"),
+      supabase
+        .from("profiles")
+        .select("id,nome,avatar_url,ativo,area_id,role")
+        .order("nome"),
       supabase.from("areas").select("id,nome,slug,cor,ativo").order("nome"),
       supabase
         .from("tipos_trabalho")
@@ -195,6 +227,19 @@ export function Kanban() {
     () => new Map(tipos.map((tipo) => [tipo.id, tipo])),
     [tipos]
   );
+
+  const colaboradoresDaCategoria = useMemo(() => {
+    if (!gestorDemandForm.areaId) {
+      return [];
+    }
+
+    return colaboradores.filter(
+      (colaborador) =>
+        colaborador.ativo &&
+        colaborador.role === "COLABORADOR" &&
+        colaborador.area_id === gestorDemandForm.areaId
+    );
+  }, [colaboradores, gestorDemandForm.areaId]);
 
   const demandasComContexto = useMemo<DemandaCard[]>(() => {
     return demandas.map((demanda) => {
@@ -420,6 +465,93 @@ export function Kanban() {
     URL.revokeObjectURL(url);
   }
 
+  function abrirDemandaGestor() {
+    setGestorDemandForm({
+      projetoId: projetos[0]?.id ?? "",
+      areaId: areas.find((area) => area.ativo)?.id ?? "",
+      tipoTrabalhoId: tipos.find((tipo) => tipo.ativo)?.id ?? "",
+      titulo: "",
+      descricao: "",
+      horasEstimadas: "",
+    });
+    setGestorDemandError("");
+    setGestorDemandOpen(true);
+  }
+
+  function fecharDemandaGestor() {
+    if (creatingGestorDemand) {
+      return;
+    }
+
+    setGestorDemandOpen(false);
+    setGestorDemandError("");
+  }
+
+  async function salvarDemandaGestor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setGestorDemandError("");
+
+    const selectedArea = areas.find((area) => area.id === gestorDemandForm.areaId);
+    const selectedType = tipos.find(
+      (tipo) => tipo.id === gestorDemandForm.tipoTrabalhoId
+    );
+    const horasEstimadas = Number(gestorDemandForm.horasEstimadas);
+
+    if (
+      !gestorDemandForm.projetoId ||
+      !selectedArea ||
+      !selectedType ||
+      !gestorDemandForm.titulo.trim()
+    ) {
+      setGestorDemandError("Preencha projeto, categoria, tipo e título.");
+      return;
+    }
+
+    if (!Number.isFinite(horasEstimadas) || horasEstimadas <= 0) {
+      setGestorDemandError("Informe uma estimativa de horas maior que zero.");
+      return;
+    }
+
+    if (colaboradoresDaCategoria.length === 0) {
+      setGestorDemandError(
+        "Nenhum colaborador ativo foi encontrado para esta categoria."
+      );
+      return;
+    }
+
+    setCreatingGestorDemand(true);
+
+    const demandasParaCriar = colaboradoresDaCategoria.map((colaborador) => ({
+      projeto_id: gestorDemandForm.projetoId,
+      colaborador_id: colaborador.id,
+      titulo: gestorDemandForm.titulo.trim(),
+      descricao: gestorDemandForm.descricao.trim() || null,
+      area: selectedArea.slug,
+      area_id: selectedArea.id,
+      tipo_trabalho_id: selectedType.id,
+      prioridade: "media",
+      prioridade_id: null,
+      status: "pendente",
+      horas_estimadas: horasEstimadas,
+      horas_realizadas: 0,
+      data_inicio: null,
+      prazo_finalizacao: null,
+    }));
+
+    const { error } = await supabase.from("demandas").insert(demandasParaCriar);
+
+    if (error) {
+      setGestorDemandError(`Não foi possível criar a demanda: ${error.message}`);
+      setCreatingGestorDemand(false);
+      return;
+    }
+
+    setCreatingGestorDemand(false);
+    setGestorDemandOpen(false);
+    setGestorDemandForm(getEmptyGestorDemandForm());
+    await carregarDados();
+  }
+
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando demandas...</p>;
   }
@@ -468,8 +600,9 @@ export function Kanban() {
 
           <button
             type="button"
+            onClick={abrirDemandaGestor}
             className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
-            title="Criação de demandas pelo fluxo do colaborador"
+            title="Demandar tarefa por categoria"
           >
             <Plus size={18} />
             Nova Demanda
@@ -682,6 +815,197 @@ export function Kanban() {
         Use os filtros para alternar entre recortes por projeto, área, status e
         responsável.
       </footer>
+
+      {gestorDemandOpen && (
+        <GestorDemandModal
+          form={gestorDemandForm}
+          projetos={projetos}
+          areas={areas}
+          tipos={tipos}
+          colaboradoresDaCategoria={colaboradoresDaCategoria}
+          errorMessage={gestorDemandError}
+          saving={creatingGestorDemand}
+          onChange={setGestorDemandForm}
+          onClose={fecharDemandaGestor}
+          onSubmit={salvarDemandaGestor}
+        />
+      )}
+    </div>
+  );
+}
+
+function GestorDemandModal({
+  form,
+  projetos,
+  areas,
+  tipos,
+  colaboradoresDaCategoria,
+  errorMessage,
+  saving,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  form: GestorDemandForm;
+  projetos: ProjetoResumo[];
+  areas: AreaCadastro[];
+  tipos: TipoTrabalho[];
+  colaboradoresDaCategoria: ColaboradorResumo[];
+  errorMessage: string;
+  saving: boolean;
+  onChange: (form: GestorDemandForm) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+      <form
+        onSubmit={onSubmit}
+        className="w-full max-w-2xl rounded-2xl bg-white shadow-xl"
+      >
+        <div className="border-b border-slate-100 px-6 py-5">
+          <h2 className="text-xl font-bold text-slate-950">
+            Nova demanda por categoria
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            A demanda será criada para cada colaborador ativo da categoria.
+          </p>
+        </div>
+
+        <div className="space-y-4 px-6 py-5">
+          {errorMessage && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              {errorMessage}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <label className="block text-sm font-semibold text-slate-700">
+              Projeto *
+              <select
+                value={form.projetoId}
+                onChange={(event) =>
+                  onChange({ ...form, projetoId: event.target.value })
+                }
+                className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                required
+              >
+                <option value="">Selecione</option>
+                {projetos.map((projeto) => (
+                  <option key={projeto.id} value={projeto.id}>
+                    {projeto.codigo ? `${projeto.codigo} - ${projeto.nome}` : projeto.nome}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block text-sm font-semibold text-slate-700">
+              Categoria *
+              <select
+                value={form.areaId}
+                onChange={(event) =>
+                  onChange({ ...form, areaId: event.target.value })
+                }
+                className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                required
+              >
+                <option value="">Selecione</option>
+                {areas
+                  .filter((area) => area.ativo)
+                  .map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.nome}
+                    </option>
+                  ))}
+              </select>
+            </label>
+
+            <label className="block text-sm font-semibold text-slate-700">
+              Tipo *
+              <select
+                value={form.tipoTrabalhoId}
+                onChange={(event) =>
+                  onChange({ ...form, tipoTrabalhoId: event.target.value })
+                }
+                className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                required
+              >
+                <option value="">Selecione</option>
+                {tipos
+                  .filter((tipo) => tipo.ativo)
+                  .map((tipo) => (
+                    <option key={tipo.id} value={tipo.id}>
+                      {tipo.nome}
+                    </option>
+                  ))}
+              </select>
+            </label>
+
+            <label className="block text-sm font-semibold text-slate-700">
+              Estimativa de horas *
+              <input
+                type="number"
+                min="0.25"
+                step="0.25"
+                value={form.horasEstimadas}
+                onChange={(event) =>
+                  onChange({ ...form, horasEstimadas: event.target.value })
+                }
+                className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                required
+              />
+            </label>
+          </div>
+
+          <label className="block text-sm font-semibold text-slate-700">
+            Título *
+            <input
+              value={form.titulo}
+              onChange={(event) =>
+                onChange({ ...form, titulo: event.target.value })
+              }
+              className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+              required
+            />
+          </label>
+
+          <label className="block text-sm font-semibold text-slate-700">
+            Descrição
+            <textarea
+              value={form.descricao}
+              onChange={(event) =>
+                onChange({ ...form, descricao: event.target.value })
+              }
+              rows={3}
+              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+            />
+          </label>
+
+          <div className="rounded-xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
+            {colaboradoresDaCategoria.length > 0
+              ? `${colaboradoresDaCategoria.length} colaborador(es) ativo(s) receberão esta demanda.`
+              : "Nenhum colaborador ativo encontrado para a categoria selecionada."}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 border-t border-slate-100 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? "Criando..." : "Criar demandas"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
