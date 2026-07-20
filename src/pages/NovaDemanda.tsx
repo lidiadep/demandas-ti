@@ -6,6 +6,7 @@ import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
 import type {
   AreaCadastro,
+  Fornecedor,
   PrioridadeCadastro,
   Projeto,
   TipoTrabalho,
@@ -34,6 +35,7 @@ export function NovaDemanda() {
   const [areas, setAreas] = useState<AreaCadastro[]>([]);
   const [tiposTrabalho, setTiposTrabalho] = useState<TipoTrabalho[]>([]);
   const [prioridades, setPrioridades] = useState<PrioridadeCadastro[]>([]);
+  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
 
   const [projetoId, setProjetoId] = useState("");
   const [areaId, setAreaId] = useState("");
@@ -44,6 +46,10 @@ export function NovaDemanda() {
   const [horasEstimadas, setHorasEstimadas] = useState("");
   const [dataInicio, setDataInicio] = useState(today);
   const [prazo, setPrazo] = useState("");
+  const [execucaoTipo, setExecucaoTipo] = useState<"interna" | "externa">(
+    "interna"
+  );
+  const [fornecedorId, setFornecedorId] = useState("");
 
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -55,6 +61,9 @@ export function NovaDemanda() {
   const selectedType = tiposTrabalho.find((tipo) => tipo.id === tipoTrabalhoId);
   const selectedPriority = prioridades.find(
     (prioridade) => prioridade.id === prioridadeId
+  );
+  const selectedFornecedor = fornecedores.find(
+    (fornecedor) => fornecedor.id === fornecedorId
   );
   const filteredTiposTrabalho = useMemo(
     () =>
@@ -70,6 +79,7 @@ export function NovaDemanda() {
       tipoTrabalhoId &&
       prioridadeId &&
       titulo.trim() &&
+      (execucaoTipo === "interna" || fornecedorId) &&
       profile
   );
 
@@ -77,7 +87,13 @@ export function NovaDemanda() {
     setLoadingOptions(true);
     setErro("");
 
-    const [projetosRes, areasRes, tiposRes, prioridadesRes] = await Promise.all([
+    const [
+      projetosRes,
+      areasRes,
+      tiposRes,
+      prioridadesRes,
+      fornecedoresRes,
+    ] = await Promise.all([
       supabase
         .from("projetos")
         .select("id,nome,codigo,cliente_id,status,clientes(nome)")
@@ -98,13 +114,19 @@ export function NovaDemanda() {
         .select("id,nome,slug,peso,cor,ordem,ativo")
         .eq("ativo", true)
         .order("ordem", { ascending: true }),
+      supabase
+        .from("fornecedores")
+        .select("id,nome,tipo,contato,ativo")
+        .eq("ativo", true)
+        .order("nome", { ascending: true }),
     ]);
 
     const firstError =
       projetosRes.error ||
       areasRes.error ||
       tiposRes.error ||
-      prioridadesRes.error;
+      prioridadesRes.error ||
+      fornecedoresRes.error;
 
     if (firstError) {
       setErro("Não foi possível carregar as opções do formulário.");
@@ -117,11 +139,13 @@ export function NovaDemanda() {
     const tiposAtivos = (tiposRes.data as TipoTrabalho[]) ?? [];
     const prioridadesAtivas =
       (prioridadesRes.data as PrioridadeCadastro[]) ?? [];
+    const fornecedoresAtivos = (fornecedoresRes.data as Fornecedor[]) ?? [];
 
     setProjetos(projetosAtivos);
     setAreas(areasAtivas);
     setTiposTrabalho(tiposAtivos);
     setPrioridades(prioridadesAtivas);
+    setFornecedores(fornecedoresAtivos);
     setProjetoId(projetosAtivos[0]?.id ?? "");
     setAreaId(areasAtivas[0]?.id ?? "");
     setTipoTrabalhoId(
@@ -174,6 +198,12 @@ export function NovaDemanda() {
       return;
     }
 
+    if (execucaoTipo === "externa" && !selectedFornecedor) {
+      setErro("Selecione o fornecedor responsável pela execução externa.");
+      setSaving(false);
+      return;
+    }
+
     const estimatedHours = Number(horasEstimadas || 0);
 
     const { error } = await supabase.from("demandas").insert({
@@ -194,8 +224,8 @@ export function NovaDemanda() {
       origem: "colaborador",
       criada_por_profile_id: profile.id,
       visualizada_em: new Date().toISOString(),
-      execucao_tipo: "interna",
-      fornecedor_id: null,
+      execucao_tipo: execucaoTipo,
+      fornecedor_id: execucaoTipo === "externa" ? fornecedorId : null,
     });
 
     if (error) {
@@ -209,6 +239,8 @@ export function NovaDemanda() {
     setHorasEstimadas("");
     setDataInicio(today);
     setPrazo("");
+    setExecucaoTipo("interna");
+    setFornecedorId("");
     setMensagem("Demanda criada com sucesso.");
     setSaving(false);
   }
@@ -375,6 +407,44 @@ export function NovaDemanda() {
                 />
               </Field>
             </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <Field label="Execução" required>
+                <select
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-blue-500"
+                  value={execucaoTipo}
+                  onChange={(event) => {
+                    const value = event.target.value as "interna" | "externa";
+                    setExecucaoTipo(value);
+                    if (value === "interna") {
+                      setFornecedorId("");
+                    }
+                  }}
+                  required
+                >
+                  <option value="interna">Interna</option>
+                  <option value="externa">Externa</option>
+                </select>
+              </Field>
+
+              {execucaoTipo === "externa" && (
+                <Field label="Fornecedor" required>
+                  <select
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-blue-500"
+                    value={fornecedorId}
+                    onChange={(event) => setFornecedorId(event.target.value)}
+                    required
+                  >
+                    <option value="">Selecione</option>
+                    {fornecedores.map((fornecedor) => (
+                      <option key={fornecedor.id} value={fornecedor.id}>
+                        {fornecedor.nome}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+            </div>
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -411,6 +481,16 @@ export function NovaDemanda() {
                 label="Prioridade"
                 value={selectedPriority?.nome ?? "-"}
               />
+              <SummaryRow
+                label="Execução"
+                value={execucaoTipo === "externa" ? "Externa" : "Interna"}
+              />
+              {execucaoTipo === "externa" && (
+                <SummaryRow
+                  label="Fornecedor"
+                  value={selectedFornecedor?.nome ?? "-"}
+                />
+              )}
               <SummaryRow label="Status inicial" value="Em andamento" />
               <SummaryRow label="Data de criação" value={formatDate(today)} />
               <SummaryRow
