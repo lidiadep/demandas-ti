@@ -9,6 +9,7 @@ import {
   Download,
   Filter,
   Folder,
+  Gauge,
   LayoutDashboard,
   List,
   MoreVertical,
@@ -17,6 +18,7 @@ import {
   SlidersHorizontal,
   Users,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import type {
@@ -32,9 +34,9 @@ import type {
 type ProjetoResumo = Pick<Projeto, "id" | "nome" | "codigo" | "cliente_id">;
 type ColaboradorResumo = Pick<
   Profile,
-  "id" | "nome" | "avatar_url" | "ativo" | "area_id" | "role"
+  "id" | "nome" | "email" | "avatar_url" | "ativo" | "area_id" | "role"
 >;
-type ViewMode = "lista" | "kanban";
+type ViewMode = "lista" | "kanban" | "esforco";
 type BoardColumnId = "doing" | "pending" | "blocked" | "done";
 
 type GestorDemandForm = {
@@ -62,6 +64,7 @@ type DemandaCard = Demanda & {
   prioridadeSlug: string;
   execucaoLabel: string;
   fornecedorNome: string | null;
+  responsavelEmail: string | null;
   horasEstimadas: number;
   horasRealizadas: number;
   late: boolean;
@@ -72,6 +75,14 @@ type BoardColumn = {
   id: BoardColumnId;
   title: string;
   tone: "green" | "amber" | "red" | "blue";
+};
+
+type EffortItem = {
+  label: string;
+  slug: string;
+  value: number;
+  total: number;
+  percent: number;
 };
 
 const boardColumns: BoardColumn[] = [
@@ -90,6 +101,20 @@ const areaFallbackLabels: Record<string, string> = {
   negocio: "Negócio",
   manutencao: "Manutenção",
 };
+
+const fallbackEffortItems: EffortItem[] = [
+  { label: "Suporte", slug: "suporte", value: 0, total: 0, percent: 0 },
+  {
+    label: "Desenvolvimento",
+    slug: "desenvolvimento",
+    value: 0,
+    total: 0,
+    percent: 0,
+  },
+  { label: "Qualidade/QA", slug: "qa", value: 0, total: 0, percent: 0 },
+  { label: "Produto/Processo", slug: "produto", value: 0, total: 0, percent: 0 },
+  { label: "Marketing", slug: "marketing", value: 0, total: 0, percent: 0 },
+];
 
 const priorityFallbackLabels: Record<string, string> = {
   alta: "Alta",
@@ -165,7 +190,7 @@ export function Kanban() {
       supabase.from("clientes").select("id,nome"),
       supabase
         .from("profiles")
-        .select("id,nome,avatar_url,ativo,area_id,role")
+        .select("id,nome,email,avatar_url,ativo,area_id,role")
         .order("nome"),
       supabase.from("fornecedores").select("id,nome,tipo,contato,ativo").order("nome"),
       supabase.from("areas").select("id,nome,slug,cor,ativo").order("nome"),
@@ -300,6 +325,7 @@ export function Kanban() {
         prioridadeSlug,
         execucaoLabel: getExecutionLabel(demanda.execucao_tipo),
         fornecedorNome: fornecedor?.nome ?? null,
+        responsavelEmail: responsavel?.email ?? null,
         horasEstimadas: getEstimatedHours(demanda),
         horasRealizadas: getWorkedHours(demanda),
         late,
@@ -407,6 +433,24 @@ export function Kanban() {
       }
     );
   }, [demandasFiltradas]);
+
+  const demandasDoSetor = useMemo(() => {
+    const profileDomains = getSectorDomains(profile?.email ?? "");
+
+    if (profileDomains.length === 0) {
+      return demandasComContexto;
+    }
+
+    return demandasComContexto.filter((demanda) => {
+      const email = demanda.responsavelEmail ?? "";
+      return profileDomains.includes(getEmailDomain(email));
+    });
+  }, [demandasComContexto, profile?.email]);
+
+  const effortMetrics = useMemo(
+    () => buildEffortMetrics(demandasDoSetor),
+    [demandasDoSetor]
+  );
 
   const totalPages = Math.max(1, Math.ceil(demandasFiltradas.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -622,7 +666,7 @@ export function Kanban() {
       <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-slate-950">
-            Demandas da Equipe
+            Analítico de Demandas
           </h1>
           <p className="mt-2 text-sm text-slate-500">
             Acompanhe todas as demandas, projetos, responsáveis e prazos.
@@ -841,6 +885,12 @@ export function Kanban() {
               label="Kanban"
               onClick={() => setViewMode("kanban")}
             />
+            <ViewButton
+              active={viewMode === "esforco"}
+              icon={<Gauge size={17} />}
+              label="Esforço"
+              onClick={() => setViewMode("esforco")}
+            />
           </div>
 
           <p className="hidden text-sm font-medium text-slate-500 md:block">
@@ -858,8 +908,17 @@ export function Kanban() {
             onPageChange={setPage}
             onPageSizeChange={setPageSize}
           />
-        ) : (
+        ) : viewMode === "kanban" ? (
           <KanbanBoard demandasPorColuna={demandasPorColuna} />
+        ) : (
+          <EffortView
+            demandas={demandasDoSetor}
+            items={effortMetrics.items}
+            totalHours={effortMetrics.totalHours}
+            activeHours={effortMetrics.activeHours}
+            collaboratorCount={effortMetrics.collaboratorCount}
+            domainLabel={getSectorLabel(profile?.email ?? "")}
+          />
         )}
       </section>
 
@@ -1200,9 +1259,12 @@ function DemandasTable({
             {demandas.map((demanda) => (
               <tr key={demanda.id} className="align-middle">
                 <td className="px-5 py-4">
-                  <p className="font-semibold text-slate-950">
+                  <Link
+                    to={`/demandas/${demanda.id}`}
+                    className="font-semibold text-slate-950 hover:text-blue-600"
+                  >
                     {demanda.titulo}
-                  </p>
+                  </Link>
                   {demanda.descricao && (
                     <p className="mt-1 line-clamp-2 max-w-md text-xs text-slate-500">
                       {demanda.descricao}
@@ -1379,7 +1441,10 @@ function KanbanColumn({
 
 function KanbanCard({ demanda }: { demanda: DemandaCard }) {
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <Link
+      to={`/demandas/${demanda.id}`}
+      className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md"
+    >
       <h3 className="line-clamp-2 font-bold text-slate-950">
         {demanda.titulo}
       </h3>
@@ -1408,6 +1473,196 @@ function KanbanCard({ demanda }: { demanda: DemandaCard }) {
           {demanda.horasEstimadas}h
         </span>
       </div>
+    </Link>
+  );
+}
+
+function EffortView({
+  demandas,
+  items,
+  totalHours,
+  activeHours,
+  collaboratorCount,
+  domainLabel,
+}: {
+  demandas: DemandaCard[];
+  items: EffortItem[];
+  totalHours: number;
+  activeHours: number;
+  collaboratorCount: number;
+  domainLabel: string;
+}) {
+  return (
+    <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-950">
+              Esforço por categoria
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Demandas do setor {domainLabel}, agrupadas por categoria.
+            </p>
+          </div>
+          <span className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold uppercase text-blue-700">
+            {demandas.length} demanda(s)
+          </span>
+        </div>
+
+        <div className="mt-6">
+          <EffortRadarChart items={items} />
+        </div>
+      </div>
+
+      <aside className="space-y-4">
+        <div className="grid grid-cols-1 gap-4">
+          <CompactMetric
+            label="Horas estimadas"
+            value={`${totalHours}h`}
+            helper="Todas as demandas do setor"
+          />
+          <CompactMetric
+            label="Horas ativas"
+            value={`${activeHours}h`}
+            helper="Pendentes, em andamento ou bloqueadas"
+          />
+          <CompactMetric
+            label="Colaboradores"
+            value={collaboratorCount}
+            helper="Com demandas nessa visão"
+          />
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <h3 className="text-sm font-bold uppercase text-slate-500">
+            Categorias
+          </h3>
+          <div className="mt-4 space-y-3">
+            {items.map((item) => (
+              <div key={item.slug}>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="font-semibold text-slate-700">
+                    {item.label}
+                  </span>
+                  <span className="font-bold text-slate-950">{item.value}h</span>
+                </div>
+                <div className="mt-2 h-2 rounded-full bg-slate-100">
+                  <div
+                    className="h-2 rounded-full bg-blue-600"
+                    style={{ width: `${item.percent}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+            {items.length === 0 && (
+              <p className="text-sm text-slate-500">
+                Nenhuma demanda encontrada para este setor.
+              </p>
+            )}
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function EffortRadarChart({ items }: { items: EffortItem[] }) {
+  const size = 360;
+  const center = size / 2;
+  const maxRadius = 120;
+  const visibleItems = items.length > 0 ? items : fallbackEffortItems;
+  const maxValue = Math.max(...visibleItems.map((item) => item.value), 1);
+
+  function point(index: number, radius: number) {
+    const angle = (Math.PI * 2 * index) / visibleItems.length - Math.PI / 2;
+
+    return {
+      x: center + radius * Math.cos(angle),
+      y: center + radius * Math.sin(angle),
+    };
+  }
+
+  const polygonPoints = visibleItems
+    .map((item, index) => {
+      const p = point(index, (item.value / maxValue) * maxRadius);
+      return `${p.x},${p.y}`;
+    })
+    .join(" ");
+
+  return (
+    <div className="flex justify-center overflow-x-auto">
+      <svg
+        className="h-auto w-full max-w-[460px]"
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        width={size}
+      >
+        {[0.25, 0.5, 0.75, 1].map((level) => (
+          <polygon
+            key={level}
+            fill="none"
+            points={visibleItems
+              .map((_, index) => {
+                const p = point(index, maxRadius * level);
+                return `${p.x},${p.y}`;
+              })
+              .join(" ")}
+            stroke="#e2e8f0"
+            strokeWidth="1"
+          />
+        ))}
+
+        {visibleItems.map((item, index) => {
+          const outer = point(index, maxRadius);
+          const label = point(index, maxRadius + 32);
+
+          return (
+            <g key={item.slug}>
+              <line
+                stroke="#e2e8f0"
+                x1={center}
+                x2={outer.x}
+                y1={center}
+                y2={outer.y}
+              />
+              <text
+                className="fill-slate-700 text-[11px] font-semibold"
+                dominantBaseline="middle"
+                textAnchor="middle"
+                x={label.x}
+                y={label.y}
+              >
+                {item.label}
+              </text>
+            </g>
+          );
+        })}
+
+        <polygon
+          fill="rgba(37, 99, 235, 0.18)"
+          points={polygonPoints}
+          stroke="#2563eb"
+          strokeWidth="3"
+        />
+      </svg>
+    </div>
+  );
+}
+
+function CompactMetric({
+  label,
+  value,
+  helper,
+}: {
+  label: string;
+  value: string | number;
+  helper: string;
+}) {
+  return (
+    <article className="rounded-2xl border border-slate-200 bg-white p-5">
+      <p className="text-xs font-bold uppercase text-slate-500">{label}</p>
+      <p className="mt-2 text-3xl font-bold text-slate-950">{value}</p>
+      <p className="mt-2 text-sm text-slate-500">{helper}</p>
     </article>
   );
 }
@@ -1866,6 +2121,92 @@ function toInputDate(date: Date) {
   const day = String(date.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
+}
+
+function buildEffortMetrics(demandas: DemandaCard[]) {
+  const totals = new Map<string, EffortItem>();
+  const collaborators = new Set<string>();
+  let totalHours = 0;
+  let activeHours = 0;
+
+  demandas.forEach((demanda) => {
+    const status = normalizeStatus(demanda.status);
+
+    if (status === "cancelado") {
+      return;
+    }
+
+    const hours = demanda.horasEstimadas;
+    const slug = demanda.areaSlug;
+    const current =
+      totals.get(slug) ??
+      {
+        label: demanda.areaNome,
+        slug,
+        value: 0,
+        total: 0,
+        percent: 0,
+      };
+
+    current.value += hours;
+    current.total += 1;
+    totals.set(slug, current);
+    collaborators.add(demanda.colaborador_id);
+    totalHours += hours;
+
+    if (!["concluido", "cancelado"].includes(status)) {
+      activeHours += hours;
+    }
+  });
+
+  const maxHours = Math.max(...Array.from(totals.values()).map((item) => item.value), 1);
+  const items = Array.from(totals.values())
+    .map((item) => ({
+      ...item,
+      value: roundNumber(item.value),
+      percent: clampPercent(Math.round((item.value / maxHours) * 100)),
+    }))
+    .sort((a, b) => b.value - a.value);
+
+  return {
+    items,
+    totalHours: roundNumber(totalHours),
+    activeHours: roundNumber(activeHours),
+    collaboratorCount: collaborators.size,
+  };
+}
+
+function getSectorDomains(email: string) {
+  const domain = getEmailDomain(email);
+
+  if (!domain) {
+    return [];
+  }
+
+  if (domain.includes("thcm") || domain.includes("parceirothcm")) {
+    return ["thcm", "parceirothcm"];
+  }
+
+  return [domain];
+}
+
+function getSectorLabel(email: string) {
+  const domains = getSectorDomains(email);
+
+  if (domains.includes("thcm")) {
+    return "THCM";
+  }
+
+  return domains[0] ? `@${domains[0]}` : "atual";
+}
+
+function getEmailDomain(email: string) {
+  const domain = email.split("@")[1]?.trim().toLowerCase() ?? "";
+  return domain.split(".")[0] ?? "";
+}
+
+function roundNumber(value: number) {
+  return Number.isInteger(value) ? value : Number(value.toFixed(1));
 }
 
 function percent(value: number, total: number) {

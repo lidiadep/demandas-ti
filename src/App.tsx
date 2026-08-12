@@ -7,6 +7,7 @@ import { NovaDemanda } from "./pages/NovaDemanda";
 import { Kanban } from "./pages/Kanban";
 import { ProjetoDetalhes } from "./pages/ProjetoDetalhes";
 import { NovoProjeto } from "./pages/NovoProjeto";
+import { DemandaDetalhes } from "./pages/DemandaDetalhes";
 import { ProtectedRoute } from "./routes/ProtectedRoute";
 import { isSupabaseConfigured, missingSupabaseEnvVars } from "./lib/supabase";
 
@@ -23,6 +24,8 @@ export default function App() {
 
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
+            <Route path="/demandas/:id" element={<DemandaDetalhes />} />
+
             <Route element={<ProtectedRoute allowedRoles={["GESTOR"]} />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/projetos" element={<Navigate to="/dashboard" replace />} />

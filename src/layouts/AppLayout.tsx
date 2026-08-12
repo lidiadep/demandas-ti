@@ -82,7 +82,7 @@ export function AppLayout() {
 
   const gestorLinks: NavLinkItem[] = [
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { to: "/kanban", label: "Kanban", icon: BarChart3 },
+    { to: "/kanban", label: "Analítico", icon: BarChart3 },
   ];
 
   const colaboradorLinks: NavLinkItem[] = [

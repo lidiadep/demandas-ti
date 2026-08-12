@@ -492,7 +492,12 @@ export function MinhasDemandas() {
               {demandasFiltradas.map((demanda) => (
                 <tr key={demanda.id} className="align-middle">
                   <td className="max-w-md px-5 py-4">
-                    <p className="font-bold text-slate-950">{demanda.titulo}</p>
+                    <Link
+                      to={`/demandas/${demanda.id}`}
+                      className="font-bold text-slate-950 hover:text-blue-600"
+                    >
+                      {demanda.titulo}
+                    </Link>
                     {demanda.descricao && (
                       <p className="mt-1 line-clamp-2 text-xs text-slate-500">
                         {demanda.descricao}
