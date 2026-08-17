@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
   Clock3,
@@ -80,6 +80,8 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [competenceFilter, setCompetenceFilter] = useState("");
+  const portfolioRef = useRef<HTMLElement | null>(null);
 
   const carregarDados = useCallback(async () => {
     setLoading(true);
@@ -149,9 +151,18 @@ export function Dashboard() {
     [colaboradores]
   );
 
+  const demandasNoPeriodo = useMemo(
+    () =>
+      demandas.filter((demanda) =>
+        isWithinCompetence(demanda, competenceFilter)
+      ),
+    [competenceFilter, demandas]
+  );
+
   const projetosComMetricas = useMemo(() => {
-    return projetos.map((projeto) => {
-      const demandasDoProjeto = demandas.filter(
+    return projetos
+      .map((projeto) => {
+      const demandasDoProjeto = demandasNoPeriodo.filter(
         (demanda) => demanda.projeto_id === projeto.id
       );
       const concluidas = demandasDoProjeto.filter(
@@ -204,8 +215,14 @@ export function Dashboard() {
         prazoMaisProximo,
         responsavel,
       };
-    });
-  }, [clientesMap, colaboradoresMap, demandas, projetos]);
+    })
+      .filter(
+        (projeto) =>
+          !competenceFilter ||
+          projeto.demandas > 0 ||
+          isProjectWithinCompetence(projeto, competenceFilter)
+      );
+  }, [clientesMap, colaboradoresMap, competenceFilter, demandasNoPeriodo, projetos]);
 
   const projetosFiltrados = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -227,30 +244,30 @@ export function Dashboard() {
     );
   }, [projetosComMetricas, searchTerm]);
 
-  const totalDemandas = demandas.length;
-  const pendentes = demandas.filter((demanda) => demanda.status === "pendente")
+  const totalDemandas = demandasNoPeriodo.length;
+  const pendentes = demandasNoPeriodo.filter((demanda) => demanda.status === "pendente")
     .length;
-  const emAndamento = demandas.filter(
+  const emAndamento = demandasNoPeriodo.filter(
     (demanda) => demanda.status === "em andamento"
   ).length;
-  const concluidas = demandas.filter((demanda) => demanda.status === "concluido")
+  const concluidas = demandasNoPeriodo.filter((demanda) => demanda.status === "concluido")
     .length;
-  const bloqueadas = demandas.filter((demanda) =>
+  const bloqueadas = demandasNoPeriodo.filter((demanda) =>
     ["bloqueado", "cancelado"].includes(demanda.status)
   ).length;
   const demandasAtivas = pendentes + emAndamento;
-  const demandasAtrasadas = demandas.filter(isDemandaAtrasada).length;
-  const projetosAtivos = projetos.filter((projeto) =>
+  const demandasAtrasadas = demandasNoPeriodo.filter(isDemandaAtrasada).length;
+  const projetosAtivos = projetosComMetricas.filter((projeto) =>
     ["ATIVO", "planejado", "em andamento"].includes(projeto.status)
   ).length;
   const colaboradoresAtivos = colaboradores.filter(
     (colaborador) => colaborador.ativo
   ).length;
-  const horasEstimadas = demandas.reduce(
+  const horasEstimadas = demandasNoPeriodo.reduce(
     (total, demanda) => total + getEstimatedHours(demanda),
     0
   );
-  const horasAtivas = demandas
+  const horasAtivas = demandasNoPeriodo
     .filter((demanda) =>
       ["pendente", "em andamento", "bloqueado"].includes(demanda.status)
     )
@@ -259,7 +276,7 @@ export function Dashboard() {
     horasEstimadas === 0 ? 0 : Math.round((horasAtivas / horasEstimadas) * 100);
 
   const hoursByAreaItems = Array.from(
-    demandas.reduce<Map<string, number>>((totals, demanda) => {
+    demandasNoPeriodo.reduce<Map<string, number>>((totals, demanda) => {
       const area = demanda.area ?? "sem_area";
       totals.set(area, (totals.get(area) ?? 0) + getEstimatedHours(demanda));
       return totals;
@@ -365,15 +382,22 @@ export function Dashboard() {
         </div>
 
         <div className="flex gap-3">
-          <button className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-left text-sm font-medium text-slate-700 shadow-sm">
+          <label className="relative flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-left text-sm font-medium text-slate-700 shadow-sm">
             <Calendar size={18} />
             <span>
               <span className="block text-xs font-medium text-slate-500">
                 Período
               </span>
-              Semana atual
+              {formatCompetenceLabel(competenceFilter)}
             </span>
-          </button>
+            <input
+              type="month"
+              value={competenceFilter}
+              onChange={(event) => setCompetenceFilter(event.target.value)}
+              className="absolute inset-0 cursor-pointer opacity-0"
+              aria-label="Selecionar período"
+            />
+          </label>
 
           <button
             onClick={exportarRelatorio}
@@ -383,7 +407,16 @@ export function Dashboard() {
             Exportar Relatório
           </button>
 
-          <button className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 shadow-sm">
+          <button
+            type="button"
+            onClick={() =>
+              portfolioRef.current?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+              })
+            }
+            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 shadow-sm"
+          >
             <Filter size={18} />
             Filtros
           </button>
@@ -473,7 +506,10 @@ export function Dashboard() {
         </ChartCard>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <section
+        ref={portfolioRef}
+        className="rounded-2xl border border-slate-200 bg-white shadow-sm"
+      >
         <div className="flex items-center justify-between gap-4 border-b border-slate-200 p-6">
           <div>
             <h2 className="text-xl font-semibold text-slate-950">
@@ -909,6 +945,62 @@ function isDemandaAtrasada(demanda: Demanda) {
   return new Date(demanda.prazo_finalizacao) < new Date();
 }
 
+function isWithinCompetence(demanda: Demanda, competence: string) {
+  if (!competence) {
+    return true;
+  }
+
+  const [year, month] = competence.split("-").map(Number);
+
+  if (!year || !month) {
+    return true;
+  }
+
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 0);
+  const demandStart = demanda.data_inicio
+    ? parseDate(demanda.data_inicio)
+    : demanda.prazo_finalizacao
+      ? parseDate(demanda.prazo_finalizacao)
+      : null;
+  const demandEnd = demanda.prazo_finalizacao
+    ? parseDate(demanda.prazo_finalizacao)
+    : demandStart;
+
+  if (!demandStart || !demandEnd) {
+    return false;
+  }
+
+  return demandStart <= monthEnd && demandEnd >= monthStart;
+}
+
+function isProjectWithinCompetence(projeto: ProjetoResumo, competence: string) {
+  if (!competence) {
+    return true;
+  }
+
+  const [year, month] = competence.split("-").map(Number);
+
+  if (!year || !month) {
+    return true;
+  }
+
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 0);
+  const projectStart = projeto.data_inicio
+    ? parseDate(projeto.data_inicio)
+    : projeto.prazo_final
+      ? parseDate(projeto.prazo_final)
+      : null;
+  const projectEnd = projeto.prazo_final ? parseDate(projeto.prazo_final) : projectStart;
+
+  if (!projectStart || !projectEnd) {
+    return false;
+  }
+
+  return projectStart <= monthEnd && projectEnd >= monthStart;
+}
+
 function getAreaPrincipal(demandas: Demanda[]) {
   const totals = new Map<string, number>();
 
@@ -968,6 +1060,28 @@ function formatAreaLabel(area: string) {
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString("pt-BR", {
     timeZone: "UTC",
+  });
+}
+
+function parseDate(value: string) {
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatCompetenceLabel(value: string) {
+  if (!value) {
+    return "Semana atual";
+  }
+
+  const [year, month] = value.split("-").map(Number);
+
+  if (!year || !month) {
+    return "Semana atual";
+  }
+
+  return new Date(year, month - 1, 1).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
   });
 }
 

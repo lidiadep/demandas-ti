@@ -679,17 +679,24 @@ export function Kanban() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <div className="inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+          <label className="relative inline-flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
             <Calendar size={18} className="text-slate-500" />
             <span>
               <span className="block text-xs font-medium text-slate-500">
-                Semana atual
+                Período
               </span>
               <span className="font-semibold text-slate-800">
-                {formatWeekRange(new Date())}
+                {formatCompetenceLabel(competenceFilter)}
               </span>
             </span>
-          </div>
+            <input
+              type="month"
+              value={competenceFilter}
+              onChange={(event) => setCompetenceFilter(event.target.value)}
+              className="absolute inset-0 cursor-pointer opacity-0"
+              aria-label="Selecionar período"
+            />
+          </label>
 
           <button
             type="button"
@@ -809,7 +816,7 @@ export function Kanban() {
           />
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_1fr_1fr_1.3fr_auto_auto]">
+        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_1fr_1.3fr_auto_auto]">
           <FilterSelect
             value={statusFilter}
             onChange={setStatusFilter}
@@ -833,17 +840,6 @@ export function Kanban() {
             ]}
             placeholder="Prioridade: Todas"
           />
-
-          <label className="flex h-12 items-center gap-3 rounded-xl border border-slate-200 px-4 text-sm text-slate-500">
-            <Calendar size={16} />
-            <input
-              type="month"
-              value={competenceFilter}
-              onChange={(event) => setCompetenceFilter(event.target.value)}
-              className="min-w-0 bg-transparent text-slate-700 outline-none"
-              title="Competência"
-            />
-          </label>
 
           <label className="flex h-12 items-center gap-3 rounded-xl border border-slate-200 px-4 text-sm text-slate-500">
             <Calendar size={16} />
@@ -2158,6 +2154,23 @@ function formatWeekRange(date: Date) {
   });
 
   return `${startLabel} - ${endLabel.replace(".", "")}`;
+}
+
+function formatCompetenceLabel(value: string) {
+  if (!value) {
+    return formatWeekRange(new Date());
+  }
+
+  const [year, month] = value.split("-").map(Number);
+
+  if (!year || !month) {
+    return formatWeekRange(new Date());
+  }
+
+  return new Date(year, month - 1, 1).toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
 }
 
 function toInputDate(date: Date) {
