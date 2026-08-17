@@ -157,6 +157,7 @@ export function Kanban() {
   const [tipoFilter, setTipoFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [competenceFilter, setCompetenceFilter] = useState("");
   const [dateStart, setDateStart] = useState("");
   const [dateEnd, setDateEnd] = useState("");
   const [showWithoutProject, setShowWithoutProject] = useState(true);
@@ -383,6 +384,7 @@ export function Kanban() {
           : normalizeStatus(demanda.status) === statusFilter);
       const matchesPriority =
         priorityFilter === "all" || demanda.prioridadeSlug === priorityFilter;
+      const matchesCompetence = isWithinCompetence(demanda, competenceFilter);
       const matchesDate = isWithinRange(
         demanda.prazo_finalizacao,
         dateStart,
@@ -399,12 +401,14 @@ export function Kanban() {
         matchesTipo &&
         matchesStatus &&
         matchesPriority &&
+        matchesCompetence &&
         matchesDate &&
         matchesProjectVisibility
       );
     });
   }, [
     areaFilter,
+    competenceFilter,
     dateEnd,
     dateStart,
     demandasComContexto,
@@ -438,14 +442,14 @@ export function Kanban() {
     const profileDomains = getSectorDomains(profile?.email ?? "");
 
     if (profileDomains.length === 0) {
-      return demandasComContexto;
+      return demandasFiltradas;
     }
 
-    return demandasComContexto.filter((demanda) => {
+    return demandasFiltradas.filter((demanda) => {
       const email = demanda.responsavelEmail ?? "";
       return profileDomains.includes(getEmailDomain(email));
     });
-  }, [demandasComContexto, profile?.email]);
+  }, [demandasFiltradas, profile?.email]);
 
   const effortMetrics = useMemo(
     () => buildEffortMetrics(demandasDoSetor),
@@ -497,6 +501,7 @@ export function Kanban() {
     setTipoFilter("all");
     setStatusFilter("all");
     setPriorityFilter("all");
+    setCompetenceFilter("");
     setDateStart("");
     setDateEnd("");
     setShowWithoutProject(true);
@@ -804,7 +809,7 @@ export function Kanban() {
           />
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_1fr_1.3fr_auto_auto]">
+        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_1fr_1fr_1.3fr_auto_auto]">
           <FilterSelect
             value={statusFilter}
             onChange={setStatusFilter}
@@ -828,6 +833,17 @@ export function Kanban() {
             ]}
             placeholder="Prioridade: Todas"
           />
+
+          <label className="flex h-12 items-center gap-3 rounded-xl border border-slate-200 px-4 text-sm text-slate-500">
+            <Calendar size={16} />
+            <input
+              type="month"
+              value={competenceFilter}
+              onChange={(event) => setCompetenceFilter(event.target.value)}
+              className="min-w-0 bg-transparent text-slate-700 outline-none"
+              title="Competência"
+            />
+          </label>
 
           <label className="flex h-12 items-center gap-3 rounded-xl border border-slate-200 px-4 text-sm text-slate-500">
             <Calendar size={16} />
@@ -2056,6 +2072,35 @@ function isWithinRange(
   }
 
   return true;
+}
+
+function isWithinCompetence(demanda: Demanda, competence: string) {
+  if (!competence) {
+    return true;
+  }
+
+  const [year, month] = competence.split("-").map(Number);
+
+  if (!year || !month) {
+    return true;
+  }
+
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 0);
+  const demandStart = demanda.data_inicio
+    ? parseDate(demanda.data_inicio)
+    : demanda.prazo_finalizacao
+      ? parseDate(demanda.prazo_finalizacao)
+      : null;
+  const demandEnd = demanda.prazo_finalizacao
+    ? parseDate(demanda.prazo_finalizacao)
+    : demandStart;
+
+  if (!demandStart || !demandEnd) {
+    return false;
+  }
+
+  return demandStart <= monthEnd && demandEnd >= monthStart;
 }
 
 function parseDate(value: string) {
