@@ -399,13 +399,39 @@ export function Dashboard() {
             </button>
 
             {periodFilterOpen && (
-              <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
-                <label className="block text-xs font-bold uppercase text-slate-500">
-                  Competência
+              <div className="absolute right-0 z-20 mt-2 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+                <div className="space-y-1">
+                  {getPeriodOptions().map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setCompetenceFilter(option.value);
+                        setPeriodFilterOpen(false);
+                      }}
+                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-semibold ${
+                        competenceFilter === option.value
+                          ? "bg-blue-50 text-blue-700"
+                          : "text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {option.label}
+                      {competenceFilter === option.value && (
+                        <span className="h-2 w-2 rounded-full bg-blue-600" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                <label className="mt-3 block border-t border-slate-100 pt-3 text-xs font-bold uppercase text-slate-500">
+                  Mês personalizado
                   <input
                     type="month"
-                    value={competenceFilter}
-                    onChange={(event) => setCompetenceFilter(event.target.value)}
+                    value={isMonthCompetence(competenceFilter) ? competenceFilter : ""}
+                    onChange={(event) => {
+                      setCompetenceFilter(event.target.value);
+                      setPeriodFilterOpen(false);
+                    }}
                     className="mt-2 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
                   />
                 </label>
@@ -418,7 +444,7 @@ export function Dashboard() {
                   }}
                   className="mt-3 w-full rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200"
                 >
-                  Limpar período
+                  Todos os períodos
                 </button>
               </div>
             )}
@@ -975,6 +1001,24 @@ function isWithinCompetence(demanda: Demanda, competence: string) {
     return true;
   }
 
+  if (competence === "current-week") {
+    const { start, end } = getWeekRange(new Date());
+    const demandStart = demanda.data_inicio
+      ? parseDate(demanda.data_inicio)
+      : demanda.prazo_finalizacao
+        ? parseDate(demanda.prazo_finalizacao)
+        : null;
+    const demandEnd = demanda.prazo_finalizacao
+      ? parseDate(demanda.prazo_finalizacao)
+      : demandStart;
+
+    if (!demandStart || !demandEnd) {
+      return false;
+    }
+
+    return demandStart <= end && demandEnd >= start;
+  }
+
   const [year, month] = competence.split("-").map(Number);
 
   if (!year || !month) {
@@ -1002,6 +1046,22 @@ function isWithinCompetence(demanda: Demanda, competence: string) {
 function isProjectWithinCompetence(projeto: ProjetoResumo, competence: string) {
   if (!competence) {
     return true;
+  }
+
+  if (competence === "current-week") {
+    const { start, end } = getWeekRange(new Date());
+    const projectStart = projeto.data_inicio
+      ? parseDate(projeto.data_inicio)
+      : projeto.prazo_final
+        ? parseDate(projeto.prazo_final)
+        : null;
+    const projectEnd = projeto.prazo_final ? parseDate(projeto.prazo_final) : projectStart;
+
+    if (!projectStart || !projectEnd) {
+      return false;
+    }
+
+    return projectStart <= end && projectEnd >= start;
   }
 
   const [year, month] = competence.split("-").map(Number);
@@ -1093,15 +1153,75 @@ function parseDate(value: string) {
   return new Date(year, month - 1, day);
 }
 
+function getWeekRange(date: Date) {
+  const start = new Date(date);
+  const day = start.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+
+  start.setDate(start.getDate() + diff);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+
+  return { start, end };
+}
+
+function formatWeekRange(date: Date) {
+  const { start, end } = getWeekRange(date);
+  const startLabel = start.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+  });
+  const endLabel = end.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+
+  return `${startLabel} - ${endLabel.replace(".", "")}`;
+}
+
+function toMonthCompetence(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+
+  return `${year}-${month}`;
+}
+
+function getPreviousMonthCompetence() {
+  const date = new Date();
+  date.setMonth(date.getMonth() - 1);
+
+  return toMonthCompetence(date);
+}
+
+function isMonthCompetence(value: string) {
+  return /^\d{4}-\d{2}$/.test(value);
+}
+
+function getPeriodOptions() {
+  return [
+    { label: "Semana atual", value: "current-week" },
+    { label: "Mês atual", value: toMonthCompetence(new Date()) },
+    { label: "Mês anterior", value: getPreviousMonthCompetence() },
+  ];
+}
+
 function formatCompetenceLabel(value: string) {
   if (!value) {
-    return "Semana atual";
+    return "Todos os períodos";
+  }
+
+  if (value === "current-week") {
+    return `Semana atual ${formatWeekRange(new Date())}`;
   }
 
   const [year, month] = value.split("-").map(Number);
 
   if (!year || !month) {
-    return "Semana atual";
+    return "Todos os períodos";
   }
 
   return new Date(year, month - 1, 1).toLocaleDateString("pt-BR", {
