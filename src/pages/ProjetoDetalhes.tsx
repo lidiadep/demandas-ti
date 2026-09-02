@@ -70,6 +70,9 @@ type DemandaDetalhada = Pick<
   | "created_at"
   | "projeto_id"
   | "colaborador_id"
+  | "area_id"
+  | "tipo_trabalho_id"
+  | "prioridade_id"
   | "prioridade"
   | "execucao_tipo"
   | "fornecedor_id"
@@ -172,6 +175,23 @@ type ProjectEditForm = {
   horasEstimadas: string;
 };
 
+type DemandEditForm = {
+  demandaId: string;
+  areaId: string;
+  tipoTrabalhoId: string;
+  execucaoTipo: "interna" | "externa";
+  fornecedorId: string;
+  colaboradorId: string;
+  prioridadeId: string;
+  status: string;
+  titulo: string;
+  descricao: string;
+  horasEstimadas: string;
+  horasRealizadas: string;
+  dataInicio: string;
+  prazoFinalizacao: string;
+};
+
 function getEmptyProjectDemandForm(): ProjectDemandForm {
   return {
     areaId: "",
@@ -196,6 +216,25 @@ function getEmptyProjectEditForm(): ProjectEditForm {
     dataInicio: "",
     prazoFinal: "",
     horasEstimadas: "",
+  };
+}
+
+function getEmptyDemandEditForm(): DemandEditForm {
+  return {
+    demandaId: "",
+    areaId: "",
+    tipoTrabalhoId: "",
+    execucaoTipo: "interna",
+    fornecedorId: "",
+    colaboradorId: "",
+    prioridadeId: "",
+    status: "pendente",
+    titulo: "",
+    descricao: "",
+    horasEstimadas: "",
+    horasRealizadas: "",
+    dataInicio: "",
+    prazoFinalizacao: "",
   };
 }
 
@@ -225,6 +264,11 @@ export function ProjetoDetalhes() {
     useState<ProjectDemandForm>(getEmptyProjectDemandForm);
   const [projectDemandError, setProjectDemandError] = useState("");
   const [savingProjectDemand, setSavingProjectDemand] = useState(false);
+  const [demandEditOpen, setDemandEditOpen] = useState(false);
+  const [demandEditForm, setDemandEditForm] =
+    useState<DemandEditForm>(getEmptyDemandEditForm);
+  const [demandEditError, setDemandEditError] = useState("");
+  const [savingDemandEdit, setSavingDemandEdit] = useState(false);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -475,6 +519,38 @@ export function ProjetoDetalhes() {
     setProjectDemandError("");
   }
 
+  function abrirEdicaoDemanda(demanda: DemandaDetalhada) {
+    setDemandEditError("");
+    setDemandEditForm({
+      demandaId: demanda.id,
+      areaId: demanda.area_id ?? "",
+      tipoTrabalhoId: demanda.tipo_trabalho_id ?? "",
+      execucaoTipo: demanda.execucao_tipo === "externa" ? "externa" : "interna",
+      fornecedorId: demanda.fornecedor_id ?? "",
+      colaboradorId: demanda.colaborador_id,
+      prioridadeId:
+        demanda.prioridade_id ||
+        prioridades.find(
+          (prioridade) => prioridade.slug === (demanda.prioridade_slug ?? demanda.prioridade)
+        )?.id ||
+        prioridades.find((prioridade) => prioridade.slug === "media")?.id ||
+        "",
+      status: normalizeStatus(demanda.status),
+      titulo: demanda.titulo,
+      descricao: demanda.descricao ?? "",
+      horasEstimadas: String(toNumber(demanda.horas_estimadas) || ""),
+      horasRealizadas: String(toNumber(demanda.horas_realizadas) || ""),
+      dataInicio: demanda.data_inicio ?? "",
+      prazoFinalizacao: demanda.prazo_finalizacao ?? "",
+    });
+    setDemandEditOpen(true);
+  }
+
+  function updateDemandEditForm(form: DemandEditForm) {
+    setDemandEditForm(form);
+    setDemandEditError("");
+  }
+
   function abrirEdicaoProjeto() {
     if (!projeto) {
       return;
@@ -636,6 +712,88 @@ export function ProjetoDetalhes() {
     await carregarDados();
   }
 
+  async function salvarEdicaoDemanda(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setDemandEditError("");
+
+    if (!profile || !canEditProject) {
+      setDemandEditError("Você não tem permissão para editar demandas.");
+      return;
+    }
+
+    const selectedArea = areas.find((area) => area.id === demandEditForm.areaId);
+    const selectedType = tipos.find(
+      (tipo) => tipo.id === demandEditForm.tipoTrabalhoId
+    );
+    const selectedPriority = prioridades.find(
+      (prioridade) => prioridade.id === demandEditForm.prioridadeId
+    );
+    const horasEstimadas = Number(demandEditForm.horasEstimadas);
+    const horasRealizadas = Number(demandEditForm.horasRealizadas || 0);
+
+    if (
+      !demandEditForm.demandaId ||
+      !selectedArea ||
+      !selectedType ||
+      !selectedPriority ||
+      !demandEditForm.colaboradorId ||
+      !demandEditForm.titulo.trim() ||
+      (demandEditForm.execucaoTipo === "externa" && !demandEditForm.fornecedorId)
+    ) {
+      setDemandEditError(
+        "Preencha categoria, tipo, responsável, prioridade, execução e título."
+      );
+      return;
+    }
+
+    if (!Number.isFinite(horasEstimadas) || horasEstimadas < 0) {
+      setDemandEditError("Informe horas estimadas válidas.");
+      return;
+    }
+
+    if (!Number.isFinite(horasRealizadas) || horasRealizadas < 0) {
+      setDemandEditError("Informe horas realizadas válidas.");
+      return;
+    }
+
+    setSavingDemandEdit(true);
+
+    const { error } = await supabase
+      .from("demandas")
+      .update({
+        colaborador_id: demandEditForm.colaboradorId,
+        titulo: demandEditForm.titulo.trim(),
+        descricao: demandEditForm.descricao.trim() || null,
+        area: selectedArea.slug,
+        area_id: selectedArea.id,
+        tipo_trabalho_id: selectedType.id,
+        prioridade: selectedPriority.slug,
+        prioridade_id: selectedPriority.id,
+        status: demandEditForm.status,
+        horas_estimadas: horasEstimadas,
+        horas_realizadas: horasRealizadas,
+        data_inicio: demandEditForm.dataInicio || null,
+        prazo_finalizacao: demandEditForm.prazoFinalizacao || null,
+        execucao_tipo: demandEditForm.execucaoTipo,
+        fornecedor_id:
+          demandEditForm.execucaoTipo === "externa"
+            ? demandEditForm.fornecedorId
+            : null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", demandEditForm.demandaId);
+
+    if (error) {
+      setDemandEditError(`Não foi possível salvar a demanda: ${error.message}`);
+      setSavingDemandEdit(false);
+      return;
+    }
+
+    setSavingDemandEdit(false);
+    setDemandEditOpen(false);
+    await carregarDados();
+  }
+
   if (loading) {
     return <p className="text-sm text-slate-500">Carregando projeto...</p>;
   }
@@ -789,10 +947,12 @@ export function ProjetoDetalhes() {
           tipos={tipos}
           fornecedores={fornecedores}
           colaboradores={colaboradoresAtivos}
+          prioridades={prioridades}
           errorMessage={projectDemandError}
           saving={savingProjectDemand}
           onFormChange={updateProjectDemandForm}
           onSubmit={salvarDemandaDoProjeto}
+          onDemandEdit={abrirEdicaoDemanda}
         />
       )}
       {activeTab === "team" && (
@@ -826,6 +986,25 @@ export function ProjetoDetalhes() {
           onClose={() => {
             setProjectEditOpen(false);
             setProjectEditError("");
+          }}
+        />
+      )}
+
+      {demandEditOpen && (
+        <DemandEditModal
+          form={demandEditForm}
+          areas={areas}
+          tipos={tipos}
+          fornecedores={fornecedores}
+          colaboradores={colaboradoresAtivos}
+          prioridades={prioridades}
+          errorMessage={demandEditError}
+          saving={savingDemandEdit}
+          onFormChange={updateDemandEditForm}
+          onSubmit={salvarEdicaoDemanda}
+          onClose={() => {
+            setDemandEditOpen(false);
+            setDemandEditError("");
           }}
         />
       )}
@@ -1040,6 +1219,309 @@ function ProjectEditModal({
               className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? "Salvando..." : "Salvar alterações"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function DemandEditModal({
+  form,
+  areas,
+  tipos,
+  fornecedores,
+  colaboradores,
+  prioridades,
+  errorMessage,
+  saving,
+  onFormChange,
+  onSubmit,
+  onClose,
+}: {
+  form: DemandEditForm;
+  areas: AreaCadastro[];
+  tipos: TipoTrabalho[];
+  fornecedores: Fornecedor[];
+  colaboradores: ColaboradorCategoria[];
+  prioridades: PrioridadeCadastro[];
+  errorMessage: string;
+  saving: boolean;
+  onFormChange: (form: DemandEditForm) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onClose: () => void;
+}) {
+  const tiposDaCategoria = tipos.filter(
+    (tipo) => tipo.ativo && (!form.areaId || tipo.area_id === form.areaId)
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div className="border-b border-slate-100 px-6 py-5">
+          <h2 className="text-xl font-bold text-slate-950">Editar demanda</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Atualize as informações da demanda vinculada ao projeto.
+          </p>
+        </div>
+
+        <form onSubmit={onSubmit}>
+          <div className="space-y-4 px-6 py-5">
+            {errorMessage && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                {errorMessage}
+              </div>
+            )}
+
+            <label className="block text-sm font-semibold text-slate-700">
+              Título *
+              <input
+                value={form.titulo}
+                onChange={(event) =>
+                  onFormChange({ ...form, titulo: event.target.value })
+                }
+                className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                required
+              />
+            </label>
+
+            <label className="block text-sm font-semibold text-slate-700">
+              Descrição
+              <textarea
+                value={form.descricao}
+                onChange={(event) =>
+                  onFormChange({ ...form, descricao: event.target.value })
+                }
+                rows={3}
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+              />
+            </label>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label className="block text-sm font-semibold text-slate-700">
+                Categoria *
+                <select
+                  value={form.areaId}
+                  onChange={(event) => {
+                    const areaId = event.target.value;
+                    onFormChange({
+                      ...form,
+                      areaId,
+                      tipoTrabalhoId:
+                        tipos.find((tipo) => tipo.ativo && tipo.area_id === areaId)
+                          ?.id ?? "",
+                    });
+                  }}
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {areas.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block text-sm font-semibold text-slate-700">
+                Tipo *
+                <select
+                  value={form.tipoTrabalhoId}
+                  onChange={(event) =>
+                    onFormChange({ ...form, tipoTrabalhoId: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {tiposDaCategoria.map((tipo) => (
+                    <option key={tipo.id} value={tipo.id}>
+                      {tipo.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <label className="block text-sm font-semibold text-slate-700">
+                Status *
+                <select
+                  value={form.status}
+                  onChange={(event) =>
+                    onFormChange({ ...form, status: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                >
+                  {getDemandStatusOptions().map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block text-sm font-semibold text-slate-700">
+                Prioridade *
+                <select
+                  value={form.prioridadeId}
+                  onChange={(event) =>
+                    onFormChange({ ...form, prioridadeId: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {prioridades.map((prioridade) => (
+                    <option key={prioridade.id} value={prioridade.id}>
+                      {prioridade.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block text-sm font-semibold text-slate-700">
+                Responsável *
+                <select
+                  value={form.colaboradorId}
+                  onChange={(event) =>
+                    onFormChange({ ...form, colaboradorId: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {colaboradores.map((colaborador) => (
+                    <option key={colaborador.id} value={colaborador.id}>
+                      {colaborador.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label className="block text-sm font-semibold text-slate-700">
+                Execução *
+                <select
+                  value={form.execucaoTipo}
+                  onChange={(event) =>
+                    onFormChange({
+                      ...form,
+                      execucaoTipo: event.target.value as "interna" | "externa",
+                      fornecedorId:
+                        event.target.value === "externa" ? form.fornecedorId : "",
+                    })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                >
+                  <option value="interna">Interna</option>
+                  <option value="externa">Externa</option>
+                </select>
+              </label>
+
+              {form.execucaoTipo === "externa" && (
+                <label className="block text-sm font-semibold text-slate-700">
+                  Fornecedor *
+                  <select
+                    value={form.fornecedorId}
+                    onChange={(event) =>
+                      onFormChange({ ...form, fornecedorId: event.target.value })
+                    }
+                    className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                    required
+                  >
+                    <option value="">Selecione</option>
+                    {fornecedores.map((fornecedor) => (
+                      <option key={fornecedor.id} value={fornecedor.id}>
+                        {fornecedor.nome}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label className="block text-sm font-semibold text-slate-700">
+                Horas estimadas *
+                <input
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  value={form.horasEstimadas}
+                  onChange={(event) =>
+                    onFormChange({ ...form, horasEstimadas: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                />
+              </label>
+
+              <label className="block text-sm font-semibold text-slate-700">
+                Horas realizadas
+                <input
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  value={form.horasRealizadas}
+                  onChange={(event) =>
+                    onFormChange({ ...form, horasRealizadas: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label className="block text-sm font-semibold text-slate-700">
+                Data de início
+                <input
+                  type="date"
+                  value={form.dataInicio}
+                  onChange={(event) =>
+                    onFormChange({ ...form, dataInicio: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                />
+              </label>
+
+              <label className="block text-sm font-semibold text-slate-700">
+                Prazo
+                <input
+                  type="date"
+                  value={form.prazoFinalizacao}
+                  onChange={(event) =>
+                    onFormChange({
+                      ...form,
+                      prazoFinalizacao: event.target.value,
+                    })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 border-t border-slate-100 px-6 py-4">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? "Salvando..." : "Salvar demanda"}
             </button>
           </div>
         </form>
@@ -1422,10 +1904,12 @@ function DemandasTab({
   tipos,
   fornecedores,
   colaboradores,
+  prioridades,
   errorMessage,
   saving,
   onFormChange,
   onSubmit,
+  onDemandEdit,
 }: {
   demandas: DemandaDetalhada[];
   form: ProjectDemandForm;
@@ -1433,11 +1917,15 @@ function DemandasTab({
   tipos: TipoTrabalho[];
   fornecedores: Fornecedor[];
   colaboradores: ColaboradorCategoria[];
+  prioridades: PrioridadeCadastro[];
   errorMessage: string;
   saving: boolean;
   onFormChange: (form: ProjectDemandForm) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onDemandEdit: (demanda: DemandaDetalhada) => void;
 }) {
+  void prioridades;
+
   return (
     <div className="space-y-5">
       <ProjectDemandCreatePanel
@@ -1466,6 +1954,7 @@ function DemandasTab({
               <th className="px-5 py-4">Horas</th>
               <th className="px-5 py-4">Prazo</th>
               <th className="px-5 py-4">Responsável</th>
+              <th className="px-5 py-4 text-right">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -1510,6 +1999,16 @@ function DemandasTab({
                 </td>
                 <td className="px-5 py-4 text-slate-700">
                   {demanda.responsavel_nome ?? "-"}
+                </td>
+                <td className="px-5 py-4 text-right">
+                  <button
+                    type="button"
+                    onClick={() => onDemandEdit(demanda)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-blue-600"
+                    title="Editar demanda"
+                  >
+                    <Pencil size={15} />
+                  </button>
                 </td>
               </tr>
             ))}
@@ -2283,4 +2782,14 @@ function canManageProject(role?: string | null) {
   return ["GESTOR", "DIRETOR", "ADMIN"].includes(
     role?.trim().toUpperCase() ?? ""
   );
+}
+
+function getDemandStatusOptions() {
+  return [
+    { label: "Pendente", value: "pendente" },
+    { label: "Em andamento", value: "em andamento" },
+    { label: "Bloqueada", value: "bloqueado" },
+    { label: "Concluída", value: "concluido" },
+    { label: "Cancelada", value: "cancelado" },
+  ];
 }
