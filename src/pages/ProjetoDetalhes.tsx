@@ -19,9 +19,11 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import type {
   AreaCadastro,
+  Cliente,
   Demanda,
   Fornecedor,
   Profile,
+  PrioridadeCadastro,
   ProjetoMembro,
   TipoTrabalho,
 } from "../types/domain";
@@ -158,6 +160,18 @@ type ProjectDemandForm = {
   horasEstimadas: string;
 };
 
+type ProjectEditForm = {
+  clienteId: string;
+  areaId: string;
+  responsavelId: string;
+  prioridadeId: string;
+  nome: string;
+  descricao: string;
+  dataInicio: string;
+  prazoFinal: string;
+  horasEstimadas: string;
+};
+
 function getEmptyProjectDemandForm(): ProjectDemandForm {
   return {
     areaId: "",
@@ -167,6 +181,20 @@ function getEmptyProjectDemandForm(): ProjectDemandForm {
     colaboradorIds: [],
     titulo: "",
     descricao: "",
+    horasEstimadas: "",
+  };
+}
+
+function getEmptyProjectEditForm(): ProjectEditForm {
+  return {
+    clienteId: "",
+    areaId: "",
+    responsavelId: "",
+    prioridadeId: "",
+    nome: "",
+    descricao: "",
+    dataInicio: "",
+    prazoFinal: "",
     horasEstimadas: "",
   };
 }
@@ -181,10 +209,18 @@ export function ProjetoDetalhes() {
   const [entregas, setEntregas] = useState<ProjetoEntrega[]>([]);
   const [documentos, setDocumentos] = useState<ProjetoDocumento[]>([]);
   const [historico, setHistorico] = useState<ProjetoHistorico[]>([]);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
   const [areas, setAreas] = useState<AreaCadastro[]>([]);
   const [tipos, setTipos] = useState<TipoTrabalho[]>([]);
+  const [prioridades, setPrioridades] = useState<PrioridadeCadastro[]>([]);
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [colaboradores, setColaboradores] = useState<ColaboradorCategoria[]>([]);
+  const [projectPriorityId, setProjectPriorityId] = useState("");
+  const [projectEditOpen, setProjectEditOpen] = useState(false);
+  const [projectEditForm, setProjectEditForm] =
+    useState<ProjectEditForm>(getEmptyProjectEditForm);
+  const [projectEditError, setProjectEditError] = useState("");
+  const [savingProjectEdit, setSavingProjectEdit] = useState(false);
   const [projectDemandForm, setProjectDemandForm] =
     useState<ProjectDemandForm>(getEmptyProjectDemandForm);
   const [projectDemandError, setProjectDemandError] = useState("");
@@ -208,8 +244,11 @@ export function ProjetoDetalhes() {
       entregasRes,
       documentosRes,
       historicoRes,
+      projetoRawRes,
+      clientesRes,
       areasRes,
       tiposRes,
+      prioridadesRes,
       fornecedoresRes,
       colaboradoresRes,
     ] = await Promise.all([
@@ -268,6 +307,12 @@ export function ProjetoDetalhes() {
         )
         .eq("projeto_id", id)
         .order("created_at", { ascending: false }),
+      supabase.from("projetos").select("prioridade_id").eq("id", id).single(),
+      supabase
+        .from("clientes")
+        .select("id,nome,documento,segmento,ativo")
+        .eq("ativo", true)
+        .order("nome", { ascending: true }),
       supabase
         .from("areas")
         .select("id,nome,slug,cor,ativo")
@@ -278,6 +323,11 @@ export function ProjetoDetalhes() {
         .select("id,nome,slug,cor,ativo,area_id")
         .eq("ativo", true)
         .order("nome", { ascending: true }),
+      supabase
+        .from("prioridades")
+        .select("id,nome,slug,peso,cor,ordem,ativo")
+        .eq("ativo", true)
+        .order("ordem", { ascending: true }),
       supabase
         .from("fornecedores")
         .select("id,nome,tipo,contato,ativo")
@@ -316,8 +366,11 @@ export function ProjetoDetalhes() {
         ["projeto_entregas", entregasRes.error],
         ["projeto_documentos", documentosRes.error],
         ["projeto_status_historico", historicoRes.error],
+        ["projetos", projetoRawRes.error],
+        ["clientes", clientesRes.error],
         ["areas", areasRes.error],
         ["tipos_trabalho", tiposRes.error],
+        ["prioridades", prioridadesRes.error],
         ["fornecedores", fornecedoresRes.error],
         ["profiles", colaboradoresRes.error],
       ].filter(([, error]) => Boolean(error));
@@ -336,8 +389,14 @@ export function ProjetoDetalhes() {
     setEntregas((entregasRes.data as ProjetoEntrega[]) ?? []);
     setDocumentos((documentosRes.data as ProjetoDocumento[]) ?? []);
     setHistorico((historicoRes.data as ProjetoHistorico[]) ?? []);
+    setProjectPriorityId(
+      ((projetoRawRes.data as { prioridade_id?: string | null } | null)
+        ?.prioridade_id as string | undefined) ?? ""
+    );
+    setClientes((clientesRes.data as Cliente[]) ?? []);
     setAreas((areasRes.data as AreaCadastro[]) ?? []);
     setTipos((tiposRes.data as TipoTrabalho[]) ?? []);
+    setPrioridades((prioridadesRes.data as PrioridadeCadastro[]) ?? []);
     setFornecedores((fornecedoresRes.data as Fornecedor[]) ?? []);
     setColaboradores((colaboradoresRes.data as ColaboradorCategoria[]) ?? []);
     setLoading(false);
@@ -401,6 +460,7 @@ export function ProjetoDetalhes() {
       ),
     [colaboradores]
   );
+  const canEditProject = canManageProject(profile?.role);
 
   const colaboradoresSelecionados = useMemo(
     () =>
@@ -413,6 +473,96 @@ export function ProjetoDetalhes() {
   function updateProjectDemandForm(form: ProjectDemandForm) {
     setProjectDemandForm(form);
     setProjectDemandError("");
+  }
+
+  function abrirEdicaoProjeto() {
+    if (!projeto) {
+      return;
+    }
+
+    setProjectEditError("");
+    setProjectEditForm({
+      clienteId: projeto.cliente_id ?? "",
+      areaId: projeto.area_id ?? "",
+      responsavelId: projeto.responsavel_id ?? "",
+      prioridadeId:
+        projectPriorityId ||
+        prioridades.find((prioridade) => prioridade.slug === "media")?.id ||
+        prioridades[0]?.id ||
+        "",
+      nome: projeto.nome,
+      descricao: projeto.descricao ?? "",
+      dataInicio: projeto.data_inicio ?? "",
+      prazoFinal: projeto.prazo_final ?? "",
+      horasEstimadas: String(toNumber(projeto.horas_estimadas) || ""),
+    });
+    setProjectEditOpen(true);
+  }
+
+  function updateProjectEditForm(form: ProjectEditForm) {
+    setProjectEditForm(form);
+    setProjectEditError("");
+  }
+
+  async function salvarEdicaoProjeto(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setProjectEditError("");
+
+    if (!id || !profile || !canEditProject) {
+      setProjectEditError("Você não tem permissão para editar este projeto.");
+      return;
+    }
+
+    const horasEstimadasPlanejadas = Number(projectEditForm.horasEstimadas);
+
+    if (
+      !projectEditForm.clienteId ||
+      !projectEditForm.areaId ||
+      !projectEditForm.responsavelId ||
+      !projectEditForm.prioridadeId ||
+      !projectEditForm.nome.trim() ||
+      !projectEditForm.dataInicio ||
+      !projectEditForm.prazoFinal
+    ) {
+      setProjectEditError("Preencha os campos obrigatórios do projeto.");
+      return;
+    }
+
+    if (
+      !Number.isFinite(horasEstimadasPlanejadas) ||
+      horasEstimadasPlanejadas < 0
+    ) {
+      setProjectEditError("Informe horas estimadas válidas.");
+      return;
+    }
+
+    setSavingProjectEdit(true);
+
+    const { error } = await supabase
+      .from("projetos")
+      .update({
+        cliente_id: projectEditForm.clienteId,
+        area_id: projectEditForm.areaId,
+        responsavel_id: projectEditForm.responsavelId,
+        prioridade_id: projectEditForm.prioridadeId,
+        nome: projectEditForm.nome.trim(),
+        descricao: projectEditForm.descricao.trim() || null,
+        data_inicio: projectEditForm.dataInicio,
+        prazo_final: projectEditForm.prazoFinal,
+        horas_estimadas: horasEstimadasPlanejadas,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+
+    if (error) {
+      setProjectEditError(`Não foi possível salvar o projeto: ${error.message}`);
+      setSavingProjectEdit(false);
+      return;
+    }
+
+    setSavingProjectEdit(false);
+    setProjectEditOpen(false);
+    await carregarDados();
   }
 
   async function salvarDemandaDoProjeto(event: FormEvent<HTMLFormElement>) {
@@ -515,7 +665,12 @@ export function ProjetoDetalhes() {
           </Link>
 
           <div className="flex items-center gap-3">
-            <button className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+            <button
+              type="button"
+              onClick={abrirEdicaoProjeto}
+              disabled={!canEditProject}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
               <Pencil size={16} />
               Editar projeto
             </button>
@@ -656,6 +811,239 @@ export function ProjetoDetalhes() {
         <span className="hidden text-slate-300 sm:inline">•</span>
         <span>Progresso Geral: {progresso}%</span>
       </footer>
+
+      {projectEditOpen && (
+        <ProjectEditModal
+          form={projectEditForm}
+          clientes={clientes}
+          areas={areas}
+          responsaveis={colaboradores}
+          prioridades={prioridades}
+          errorMessage={projectEditError}
+          saving={savingProjectEdit}
+          onFormChange={updateProjectEditForm}
+          onSubmit={salvarEdicaoProjeto}
+          onClose={() => {
+            setProjectEditOpen(false);
+            setProjectEditError("");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProjectEditModal({
+  form,
+  clientes,
+  areas,
+  responsaveis,
+  prioridades,
+  errorMessage,
+  saving,
+  onFormChange,
+  onSubmit,
+  onClose,
+}: {
+  form: ProjectEditForm;
+  clientes: Cliente[];
+  areas: AreaCadastro[];
+  responsaveis: ColaboradorCategoria[];
+  prioridades: PrioridadeCadastro[];
+  errorMessage: string;
+  saving: boolean;
+  onFormChange: (form: ProjectEditForm) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div className="border-b border-slate-100 px-6 py-5">
+          <h2 className="text-xl font-bold text-slate-950">Editar projeto</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Atualize as informações de planejamento do projeto.
+          </p>
+        </div>
+
+        <form onSubmit={onSubmit}>
+          <div className="space-y-4 px-6 py-5">
+            {errorMessage && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                {errorMessage}
+              </div>
+            )}
+
+            <label className="block text-sm font-semibold text-slate-700">
+              Nome do projeto *
+              <input
+                value={form.nome}
+                onChange={(event) =>
+                  onFormChange({ ...form, nome: event.target.value })
+                }
+                className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                required
+              />
+            </label>
+
+            <label className="block text-sm font-semibold text-slate-700">
+              Descrição
+              <textarea
+                value={form.descricao}
+                onChange={(event) =>
+                  onFormChange({ ...form, descricao: event.target.value })
+                }
+                rows={3}
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+              />
+            </label>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label className="block text-sm font-semibold text-slate-700">
+                Cliente *
+                <select
+                  value={form.clienteId}
+                  onChange={(event) =>
+                    onFormChange({ ...form, clienteId: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {clientes.map((cliente) => (
+                    <option key={cliente.id} value={cliente.id}>
+                      {cliente.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block text-sm font-semibold text-slate-700">
+                Área *
+                <select
+                  value={form.areaId}
+                  onChange={(event) =>
+                    onFormChange({ ...form, areaId: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {areas.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label className="block text-sm font-semibold text-slate-700">
+                Responsável *
+                <select
+                  value={form.responsavelId}
+                  onChange={(event) =>
+                    onFormChange({ ...form, responsavelId: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {responsaveis.map((responsavel) => (
+                    <option key={responsavel.id} value={responsavel.id}>
+                      {responsavel.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block text-sm font-semibold text-slate-700">
+                Prioridade *
+                <select
+                  value={form.prioridadeId}
+                  onChange={(event) =>
+                    onFormChange({ ...form, prioridadeId: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                >
+                  <option value="">Selecione</option>
+                  {prioridades.map((prioridade) => (
+                    <option key={prioridade.id} value={prioridade.id}>
+                      {prioridade.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <label className="block text-sm font-semibold text-slate-700">
+                Data de início *
+                <input
+                  type="date"
+                  value={form.dataInicio}
+                  onChange={(event) =>
+                    onFormChange({ ...form, dataInicio: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                />
+              </label>
+
+              <label className="block text-sm font-semibold text-slate-700">
+                Prazo final *
+                <input
+                  type="date"
+                  value={form.prazoFinal}
+                  onChange={(event) =>
+                    onFormChange({ ...form, prazoFinal: event.target.value })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                />
+              </label>
+
+              <label className="block text-sm font-semibold text-slate-700">
+                Horas estimadas *
+                <input
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  value={form.horasEstimadas}
+                  onChange={(event) =>
+                    onFormChange({
+                      ...form,
+                      horasEstimadas: event.target.value,
+                    })
+                  }
+                  className="mt-2 h-12 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                  required
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 border-t border-slate-100 px-6 py-4">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? "Salvando..." : "Salvar alterações"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -1889,4 +2277,10 @@ function getInitials(name: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
+}
+
+function canManageProject(role?: string | null) {
+  return ["GESTOR", "DIRETOR", "ADMIN"].includes(
+    role?.trim().toUpperCase() ?? ""
+  );
 }
