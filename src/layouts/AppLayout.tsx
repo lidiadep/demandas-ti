@@ -158,7 +158,7 @@ export function AppLayout() {
         </div>
       </aside>
 
-      <main className="ml-64 min-h-screen p-8">
+      <main className="ml-64 min-h-screen p-6 xl:p-7">
         <Outlet />
       </main>
     </div>

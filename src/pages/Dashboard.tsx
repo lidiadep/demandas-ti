@@ -437,16 +437,16 @@ export function Dashboard() {
   }
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+    <div className="space-y-5">
+      <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <p className="text-sm font-semibold text-blue-600">
             {getGreeting()}, {getFirstName(profile?.nome)}
           </p>
-          <h1 className="mt-2 text-3xl font-bold text-slate-950">
+          <h1 className="mt-1.5 text-2xl font-bold text-slate-950">
             Dashboard Operacional
           </h1>
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-1.5 text-sm text-slate-500">
             Acompanhe projetos, demandas e capacidade do período selecionado.
           </p>
         </div>
@@ -545,7 +545,7 @@ export function Dashboard() {
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         {kpiItems.map((item) => (
           <KpiCard
             key={item.label}
@@ -558,7 +558,7 @@ export function Dashboard() {
         ))}
       </section>
 
-      <section className="grid grid-cols-1 gap-5 lg:grid-cols-2 2xl:grid-cols-[1fr_1fr_1.05fr]">
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-[1fr_1fr_1.05fr]">
         <ChartCard title="Distribuição de Horas por Área">
           <DonutChart
             total={horasEstimadas}
@@ -598,9 +598,9 @@ export function Dashboard() {
         ref={portfolioRef}
         className="rounded-2xl border border-slate-200 bg-white shadow-sm"
       >
-        <div className="flex items-center justify-between gap-4 border-b border-slate-200 p-6">
+        <div className="flex items-center justify-between gap-4 border-b border-slate-200 p-5">
           <div>
-            <h2 className="text-xl font-semibold text-slate-950">
+            <h2 className="text-lg font-semibold text-slate-950">
               Carteira de Projetos
             </h2>
             <p className="mt-1 text-sm text-slate-500">
@@ -759,19 +759,19 @@ function KpiCard({
   const style = styles[color];
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <p className="text-sm font-semibold text-slate-600">{label}</p>
         <div
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${style.bg} ${style.text}`}
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${style.bg} ${style.text}`}
         >
           {icon}
         </div>
       </div>
-      <h2 className="mt-5 text-3xl font-bold tracking-tight text-slate-950">
+      <h2 className="mt-4 break-words text-2xl font-bold tracking-tight text-slate-950">
         {value}
       </h2>
-      <p className="mt-5 text-sm font-medium text-slate-500">{helper}</p>
+      <p className="mt-4 text-xs font-medium text-slate-500">{helper}</p>
     </div>
   );
 }
@@ -789,7 +789,7 @@ function ChartCard({
 }) {
   return (
     <div
-      className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${className}`}
+      className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}
     >
       <div className="flex items-center justify-between gap-4">
         <h2 className="font-semibold text-slate-950">{title}</h2>
@@ -826,23 +826,23 @@ function DonutChart({
           .join(", ");
 
   return (
-    <div className="mt-7 flex flex-col items-center gap-6 lg:flex-row lg:gap-8">
-      <div className="relative h-44 w-44 shrink-0">
+    <div className="mt-5 flex flex-col items-center gap-5 lg:flex-row lg:gap-6">
+      <div className="relative h-36 w-36 shrink-0">
         <div
-          className="h-44 w-44 rounded-full"
+          className="h-36 w-36 rounded-full"
           style={{
             background: `conic-gradient(${gradient})`,
           }}
         />
-        <div className="absolute inset-7 flex flex-col items-center justify-center rounded-full bg-white">
-          <strong className="text-3xl font-bold text-slate-950">
+        <div className="absolute inset-6 flex flex-col items-center justify-center rounded-full bg-white">
+          <strong className="text-2xl font-bold text-slate-950">
             {centerValue}
           </strong>
-          <span className="text-sm text-slate-500">{totalLabel}</span>
+          <span className="text-xs text-slate-500">{totalLabel}</span>
         </div>
       </div>
 
-      <div className="min-w-0 space-y-4">
+      <div className="min-w-0 space-y-3">
         {items.map((item) => {
           const percentValue = percent(item.value, total);
 
@@ -854,7 +854,7 @@ function DonutChart({
               />
               <div>
                 <p className="font-medium text-slate-700">{item.label}</p>
-                <p className="mt-1 text-slate-500">
+                <p className="mt-0.5 text-xs text-slate-500">
                   {item.value}
                   {item.suffix ?? ""} ({percentValue}%)
                 </p>
@@ -877,8 +877,8 @@ function CapacityGauge({
   total: number;
 }) {
   return (
-    <div className="mt-8 flex flex-col items-center">
-      <div className="relative h-36 w-72">
+    <div className="mt-6 flex flex-col items-center">
+      <div className="relative h-28 w-60">
         <svg viewBox="0 0 240 140" className="h-full w-full">
           <path
             d="M 30 120 A 90 90 0 0 1 210 120"
@@ -900,14 +900,14 @@ function CapacityGauge({
           />
         </svg>
         <div className="absolute inset-x-0 bottom-0 text-center">
-          <p className="text-5xl font-bold text-slate-950">{percentValue}%</p>
-          <p className="mt-2 text-sm font-medium text-slate-600">
+          <p className="text-4xl font-bold text-slate-950">{percentValue}%</p>
+          <p className="mt-1 text-xs font-medium text-slate-600">
             da capacidade utilizada
           </p>
         </div>
       </div>
 
-      <p className="mt-4 text-sm text-slate-500">
+      <p className="mt-3 text-xs text-slate-500">
         {used}h utilizadas de {total}h estimadas
       </p>
     </div>
