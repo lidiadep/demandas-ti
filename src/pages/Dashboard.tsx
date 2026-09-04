@@ -11,7 +11,6 @@ import {
   Plus,
   Search,
   TrendingUp,
-  Users,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
@@ -261,11 +260,12 @@ export function Dashboard() {
   const projetosAtivos = projetosComMetricas.filter((projeto) =>
     ["ATIVO", "planejado", "em andamento"].includes(projeto.status)
   ).length;
-  const colaboradoresAtivos = colaboradores.filter(
-    (colaborador) => colaborador.ativo
-  ).length;
   const horasEstimadas = demandasNoPeriodo.reduce(
     (total, demanda) => total + getEstimatedHours(demanda),
+    0
+  );
+  const horasRealizadas = demandasNoPeriodo.reduce(
+    (total, demanda) => total + getWorkedHours(demanda),
     0
   );
   const horasAtivas = demandasNoPeriodo
@@ -275,6 +275,75 @@ export function Dashboard() {
     .reduce((total, demanda) => total + getEstimatedHours(demanda), 0);
   const capacidadeUtilizada =
     horasEstimadas === 0 ? 0 : Math.round((horasAtivas / horasEstimadas) * 100);
+  const orcamentoTotal = projetosComMetricas.reduce(
+    (total: number, projeto) => total + getProjectBudget(projeto),
+    0
+  );
+  const isExecutiveView = isExecutiveRole(profile?.role);
+  const kpiItems = isExecutiveView
+    ? [
+        {
+          icon: <Folder size={19} />,
+          label: "Projetos ativos",
+          value: projetosAtivos,
+          helper: `${projetosComMetricas.length} projeto(s) no período`,
+          color: "blue" as const,
+        },
+        {
+          icon: <FileText size={19} />,
+          label: "Demandas no período",
+          value: totalDemandas,
+          helper: `${demandasAtivas} ativa(s)`,
+          color: "green" as const,
+        },
+        {
+          icon: <Clock3 size={19} />,
+          label: "Horas planejadas/realizadas",
+          value: `${horasEstimadas}h / ${horasRealizadas}h`,
+          helper: `${percent(horasRealizadas, horasEstimadas)}% realizado`,
+          color: "purple" as const,
+        },
+        {
+          icon: <TrendingUp size={19} />,
+          label: "Orçamento total",
+          value: formatCurrency(orcamentoTotal),
+          helper:
+            orcamentoTotal > 0
+              ? "Planejamento financeiro"
+              : "não cadastrado",
+          color: "orange" as const,
+        },
+      ]
+    : [
+        {
+          icon: <Folder size={19} />,
+          label: "Projetos em andamento",
+          value: projetosAtivos,
+          helper: `${projetos.length - projetosAtivos} concluído(s)`,
+          color: "blue" as const,
+        },
+        {
+          icon: <FileText size={19} />,
+          label: "Demandas ativas",
+          value: demandasAtivas,
+          helper: `${concluidas} concluída(s)`,
+          color: "green" as const,
+        },
+        {
+          icon: <Clock3 size={19} />,
+          label: "Horas planejadas",
+          value: `${horasEstimadas}h`,
+          helper: `${capacidadeUtilizada}% em demandas ativas`,
+          color: "purple" as const,
+        },
+        {
+          icon: <TrendingUp size={19} />,
+          label: "Demandas atrasadas",
+          value: demandasAtrasadas,
+          helper: `${percent(demandasAtrasadas, totalDemandas)}% do total`,
+          color: "orange" as const,
+        },
+      ];
 
   const hoursByAreaItems = Array.from(
     demandasNoPeriodo.reduce<Map<string, number>>((totals, demanda) => {
@@ -369,32 +438,34 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-start justify-between gap-6">
+      <header className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-600">
-            Olá, {profile?.nome}!
+          <p className="text-sm font-semibold text-blue-600">
+            {getGreeting()}, {getFirstName(profile?.nome)}
           </p>
           <h1 className="mt-2 text-3xl font-bold text-slate-950">
-            Dashboard de Projetos
+            Dashboard Operacional
           </h1>
           <p className="mt-2 text-sm text-slate-500">
-            Visão geral do portfólio de projetos e capacidade da equipe.
+            Acompanhe projetos, demandas e capacidade do período selecionado.
           </p>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <div className="relative">
             <button
               type="button"
               onClick={() => setPeriodFilterOpen((open) => !open)}
-              className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-left text-sm font-medium text-slate-700 shadow-sm"
+              className="flex min-w-64 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-medium text-slate-700 shadow-sm hover:border-blue-200 hover:bg-blue-50/30"
             >
-              <Calendar size={18} />
-              <span>
+              <Calendar size={17} className="text-blue-600" />
+              <span className="min-w-0">
                 <span className="block text-xs font-medium text-slate-500">
-                  Período
+                  Período de análise
                 </span>
-                {formatCompetenceLabel(competenceFilter)}
+                <span className="block truncate font-semibold text-slate-900">
+                  {formatCompetenceLabel(competenceFilter)}
+                </span>
               </span>
             </button>
 
@@ -452,7 +523,7 @@ export function Dashboard() {
 
           <button
             onClick={exportarRelatorio}
-            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 shadow-sm"
+            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
           >
             <Download size={18} />
             Exportar Relatório
@@ -466,7 +537,7 @@ export function Dashboard() {
                 block: "start",
               })
             }
-            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-700 shadow-sm"
+            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
           >
             <Filter size={18} />
             Filtros
@@ -474,51 +545,17 @@ export function Dashboard() {
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
-        <KpiCard
-          icon={<Folder size={22} />}
-          label="Projetos ativos"
-          value={projetosAtivos}
-          helper={`${projetos.length - projetosAtivos} concluído(s)`}
-          color="blue"
-          progress={percent(projetosAtivos, projetos.length)}
-        />
-
-        <KpiCard
-          icon={<FileText size={22} />}
-          label="Demandas ativas"
-          value={demandasAtivas}
-          helper={`${concluidas} concluída(s)`}
-          color="green"
-          progress={percent(demandasAtivas, totalDemandas)}
-        />
-
-        <KpiCard
-          icon={<Clock3 size={22} />}
-          label="Horas estimadas (TI)"
-          value={`${horasEstimadas}h`}
-          helper={`${capacidadeUtilizada}% em demandas ativas`}
-          color="purple"
-          progress={capacidadeUtilizada}
-        />
-
-        <KpiCard
-          icon={<TrendingUp size={22} />}
-          label="Demandas atrasadas"
-          value={demandasAtrasadas}
-          helper={`${percent(demandasAtrasadas, totalDemandas)}% do total`}
-          color="orange"
-          progress={percent(demandasAtrasadas, totalDemandas)}
-        />
-
-        <KpiCard
-          icon={<Users size={22} />}
-          label="Colaboradores"
-          value={colaboradoresAtivos}
-          helper={`${colaboradores.length} perfil(is) no total`}
-          color="cyan"
-          progress={percent(colaboradoresAtivos, colaboradores.length)}
-        />
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {kpiItems.map((item) => (
+          <KpiCard
+            key={item.label}
+            icon={item.icon}
+            label={item.label}
+            value={item.value}
+            helper={item.helper}
+            color={item.color}
+          />
+        ))}
       </section>
 
       <section className="grid grid-cols-1 gap-5 lg:grid-cols-2 2xl:grid-cols-[1fr_1fr_1.05fr]">
@@ -694,60 +731,47 @@ function KpiCard({
   value,
   helper,
   color,
-  progress,
 }: {
   icon: ReactNode;
   label: string;
   value: number | string;
   helper: string;
-  color: "blue" | "green" | "orange" | "purple" | "cyan";
-  progress: number;
+  color: "blue" | "green" | "orange" | "purple";
 }) {
   const styles = {
     blue: {
       bg: "bg-blue-50",
       text: "text-blue-600",
-      bar: "bg-blue-600",
     },
     green: {
       bg: "bg-emerald-50",
       text: "text-emerald-600",
-      bar: "bg-emerald-500",
     },
     orange: {
       bg: "bg-orange-50",
       text: "text-orange-600",
-      bar: "bg-orange-500",
     },
     purple: {
       bg: "bg-purple-50",
       text: "text-purple-600",
-      bar: "bg-purple-500",
-    },
-    cyan: {
-      bg: "bg-cyan-50",
-      text: "text-cyan-600",
-      bar: "bg-cyan-500",
     },
   };
   const style = styles[color];
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div
-        className={`flex h-12 w-12 items-center justify-center rounded-2xl ${style.bg} ${style.text}`}
-      >
-        {icon}
-      </div>
-      <p className="mt-5 text-xs font-bold uppercase text-slate-500">{label}</p>
-      <h2 className="mt-2 text-4xl font-bold text-slate-950">{value}</h2>
-      <p className="mt-3 text-sm text-slate-500">{helper}</p>
-      <div className="mt-5 h-1.5 rounded-full bg-slate-100">
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-sm font-semibold text-slate-600">{label}</p>
         <div
-          className={`h-1.5 rounded-full ${style.bar}`}
-          style={{ width: `${clampPercent(progress)}%` }}
-        />
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${style.bg} ${style.text}`}
+        >
+          {icon}
+        </div>
       </div>
+      <h2 className="mt-5 text-3xl font-bold tracking-tight text-slate-950">
+        {value}
+      </h2>
+      <p className="mt-5 text-sm font-medium text-slate-500">{helper}</p>
     </div>
   );
 }
@@ -1125,14 +1149,6 @@ function percent(value: number, total: number) {
   return total === 0 ? 0 : Math.round((value / total) * 100);
 }
 
-function clampPercent(value: number) {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-
-  return Math.min(100, Math.max(0, value));
-}
-
 function formatAreaLabel(area: string) {
   return area
     .replace(/[-_]+/g, " ")
@@ -1151,6 +1167,51 @@ function formatDate(value: string) {
 function parseDate(value: string) {
   const [year, month, day] = value.slice(0, 10).split("-").map(Number);
   return new Date(year, month - 1, day);
+}
+
+function getGreeting() {
+  const hour = new Date().getHours();
+
+  if (hour < 12) {
+    return "Bom dia";
+  }
+
+  if (hour < 18) {
+    return "Boa tarde";
+  }
+
+  return "Boa noite";
+}
+
+function getFirstName(name?: string | null) {
+  return name?.trim().split(" ")[0] || "bem-vindo";
+}
+
+function isExecutiveRole(role?: string | null) {
+  return ["DIRETOR", "SUPERADMIN", "ADMIN"].includes(
+    role?.trim().toUpperCase() ?? ""
+  );
+}
+
+function getProjectBudget(projeto: ProjetoResumo): number {
+  const values = [
+    (projeto as ProjetoResumo & { orcamento_total?: number | string | null })
+      .orcamento_total,
+    (projeto as ProjetoResumo & { orcamento?: number | string | null }).orcamento,
+  ];
+
+  return values.reduce<number>((total, value) => {
+    const amount = Number(value);
+    return total + (Number.isFinite(amount) ? amount : 0);
+  }, 0);
+}
+
+function formatCurrency(value: number) {
+  return value.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  });
 }
 
 function getWeekRange(date: Date) {
