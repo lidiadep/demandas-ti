@@ -547,7 +547,7 @@ export function Dashboard() {
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {kpiItems.map((item) => (
           <KpiCard
             key={item.label}
@@ -560,7 +560,7 @@ export function Dashboard() {
         ))}
       </section>
 
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-[1fr_1fr_1.05fr]">
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <ChartCard title="Distribuição de Horas por Área">
           <DonutChart
             total={horasEstimadas}
@@ -581,7 +581,7 @@ export function Dashboard() {
 
         <ChartCard
           title="Capacidade da Equipe"
-          className="lg:col-span-2 2xl:col-span-1"
+          className="xl:col-span-2"
           action={
             <button className="text-sm font-semibold text-blue-600">
               Ver detalhes
@@ -598,7 +598,7 @@ export function Dashboard() {
 
       <section
         ref={portfolioRef}
-        className="rounded-xl border border-slate-200 bg-white shadow-sm"
+        className="rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
       >
         <div className="flex items-center justify-between gap-4 border-b border-slate-200 p-4">
           <div>
@@ -761,19 +761,19 @@ function KpiCard({
   const style = styles[color];
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="min-h-32 rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <div className="flex items-start justify-between gap-4">
-        <p className="text-sm font-semibold text-slate-600">{label}</p>
+        <p className="text-sm font-medium text-slate-500">{label}</p>
         <div
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${style.bg} ${style.text}`}
         >
           {icon}
         </div>
       </div>
-      <h2 className="mt-4 break-words text-2xl font-bold tracking-tight text-slate-950">
+      <h2 className="mt-4 break-words text-[26px] font-semibold tracking-tight text-slate-950">
         {value}
       </h2>
-      <p className="mt-4 text-xs font-medium text-slate-500">{helper}</p>
+      <p className="mt-3 text-xs font-medium text-slate-500">{helper}</p>
     </div>
   );
 }
@@ -790,9 +790,9 @@ function ChartCard({
   children: ReactNode;
 }) {
   return (
-    <div className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}>
+    <div className={`rounded-xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${className}`}>
       <div className="flex items-center justify-between gap-4">
-        <h2 className="font-semibold text-slate-950">{title}</h2>
+        <h2 className="text-base font-semibold text-slate-950">{title}</h2>
         {action}
       </div>
       {children}
@@ -826,16 +826,16 @@ function DonutChart({
           .join(", ");
 
   return (
-    <div className="mt-5 flex flex-col items-center gap-5 lg:flex-row lg:gap-6">
-      <div className="relative h-36 w-36 shrink-0">
+    <div className="mt-5 flex flex-col items-center gap-5 sm:flex-row sm:gap-6">
+      <div className="relative h-32 w-32 shrink-0">
         <div
-          className="h-36 w-36 rounded-full"
+          className="h-32 w-32 rounded-full"
           style={{
             background: `conic-gradient(${gradient})`,
           }}
         />
-        <div className="absolute inset-6 flex flex-col items-center justify-center rounded-full bg-white">
-          <strong className="text-2xl font-bold text-slate-950">
+        <div className="absolute inset-5 flex flex-col items-center justify-center rounded-full bg-white">
+          <strong className="text-xl font-semibold text-slate-950">
             {centerValue}
           </strong>
           <span className="text-xs text-slate-500">{totalLabel}</span>
@@ -877,39 +877,27 @@ function CapacityGauge({
   total: number;
 }) {
   return (
-    <div className="mt-6 flex flex-col items-center">
-      <div className="relative h-28 w-60">
-        <svg viewBox="0 0 240 140" className="h-full w-full">
-          <path
-            d="M 30 120 A 90 90 0 0 1 210 120"
-            fill="none"
-            pathLength="100"
-            stroke="#e2e8f0"
-            strokeLinecap="round"
-            strokeWidth="14"
-          />
-          <path
-            d="M 30 120 A 90 90 0 0 1 210 120"
-            fill="none"
-            pathLength="100"
-            stroke="#22c55e"
-            strokeDasharray="100"
-            strokeDashoffset={100 - percentValue}
-            strokeLinecap="round"
-            strokeWidth="14"
-          />
-        </svg>
-        <div className="absolute inset-x-0 bottom-0 text-center">
-          <p className="text-4xl font-bold text-slate-950">{percentValue}%</p>
-          <p className="mt-1 text-xs font-medium text-slate-600">
-            da capacidade utilizada
-          </p>
-        </div>
+    <div className="mt-5 grid gap-3 md:grid-cols-[160px_1fr] md:items-center">
+      <div>
+        <p className="text-4xl font-semibold tracking-tight text-slate-950">
+          {percentValue}%
+        </p>
+        <p className="mt-1 text-xs font-medium text-slate-500">
+          da capacidade utilizada
+        </p>
       </div>
 
-      <p className="mt-3 text-xs text-slate-500">
-        {used}h utilizadas de {total}h estimadas
-      </p>
+      <div>
+        <div className="h-2 rounded-full bg-slate-100">
+          <div
+            className="h-2 rounded-full bg-emerald-500"
+            style={{ width: `${Math.min(percentValue, 100)}%` }}
+          />
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          {used}h utilizadas de {total}h estimadas
+        </p>
+      </div>
     </div>
   );
 }

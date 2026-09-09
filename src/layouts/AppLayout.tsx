@@ -158,8 +158,8 @@ export function AppLayout() {
         </div>
       </aside>
 
-      <main className="ml-60 min-h-screen px-7 py-6">
-        <div className="mx-auto max-w-[1160px]">
+      <main className="ml-60 min-h-screen px-8 py-6 2xl:px-10">
+        <div className="mx-auto w-full max-w-[1500px]">
           <Outlet />
         </div>
       </main>
