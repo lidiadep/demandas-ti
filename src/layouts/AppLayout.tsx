@@ -99,17 +99,17 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <aside className="fixed left-0 top-0 h-screen w-64 border-r border-slate-200 bg-white px-5 py-6">
-        <div className="flex h-20 items-center justify-center">
+      <aside className="fixed left-0 top-0 h-screen w-60 border-r border-slate-200 bg-white px-4 py-5">
+        <div className="flex h-16 items-center justify-center">
           <img
             src={fortTechSidebarLogo}
             alt="Fort Tech Solutions"
-            className="max-h-20 w-full object-contain"
+            className="max-h-16 w-full object-contain"
           />
         </div>
         <h1 className="sr-only">Demandas TI</h1>
 
-        <nav className="mt-8 space-y-2">
+        <nav className="mt-7 space-y-1.5">
           {links.map((item) => {
             const Icon = item.icon;
             const active =
@@ -122,7 +122,7 @@ export function AppLayout() {
               <Link
                 key={item.to}
                 to={item.to}
-                className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium ${
+                className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium ${
                   active
                     ? "bg-blue-50 text-blue-700"
                     : "text-slate-600 hover:bg-slate-100"
@@ -140,8 +140,8 @@ export function AppLayout() {
           })}
         </nav>
 
-        <div className="absolute bottom-6 left-5 right-5 space-y-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="absolute bottom-5 left-4 right-4 space-y-3">
+          <div className="rounded-xl border border-slate-200 bg-white p-3.5">
             <p className="font-semibold text-slate-900">{profile?.nome}</p>
             <p className="mt-1 text-xs font-medium text-blue-600">
               {profile?.role}
@@ -150,7 +150,7 @@ export function AppLayout() {
 
           <button
             onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-100"
+            className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100"
           >
             <LogOut size={18} />
             Sair
@@ -158,8 +158,10 @@ export function AppLayout() {
         </div>
       </aside>
 
-      <main className="ml-64 min-h-screen p-6 xl:p-7">
-        <Outlet />
+      <main className="ml-60 min-h-screen px-7 py-6">
+        <div className="mx-auto max-w-[1160px]">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
