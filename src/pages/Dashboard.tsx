@@ -596,9 +596,10 @@ export function Dashboard() {
               : "Projetos ativos por área"
           }
         >
-          <HorizontalBarChart
+          <DonutChart
             total={projetosAtivos}
-            emptyLabel="Nenhum projeto ativo no período."
+            totalLabel="Ativos"
+            centerValue={String(projetosAtivos)}
             items={projectDistributionItems}
           />
         </ChartCard>
@@ -896,59 +897,6 @@ function DonutChart({
           );
         })}
       </div>
-    </div>
-  );
-}
-
-function HorizontalBarChart({
-  total,
-  emptyLabel,
-  items,
-}: {
-  total: number;
-  emptyLabel: string;
-  items: ChartItem[];
-}) {
-  if (total === 0 || items.length === 0) {
-    return <p className="mt-6 text-sm text-slate-500">{emptyLabel}</p>;
-  }
-
-  return (
-    <div className="mt-5 space-y-4">
-      {items.map((item) => {
-        const percentValue = percent(item.value, total);
-
-        return (
-          <div key={item.label} className="space-y-2">
-            <div className="flex items-center justify-between gap-4 text-sm">
-              <div className="flex min-w-0 items-center gap-2">
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: item.color }}
-                />
-                <span className="truncate font-medium text-slate-700">
-                  {item.label}
-                </span>
-              </div>
-              <span className="shrink-0 font-semibold text-slate-950">
-                {item.value} projeto(s)
-              </span>
-            </div>
-            <div className="h-2 rounded-full bg-slate-100">
-              <div
-                className="h-2 rounded-full"
-                style={{
-                  width: `${percentValue}%`,
-                  backgroundColor: item.color,
-                }}
-              />
-            </div>
-            <p className="text-xs font-medium text-slate-500">
-              {percentValue}% dos projetos ativos
-            </p>
-          </div>
-        );
-      })}
     </div>
   );
 }
