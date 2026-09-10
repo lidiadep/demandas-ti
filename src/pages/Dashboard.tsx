@@ -15,7 +15,13 @@ import {
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
-import type { Cliente, Demanda, Profile, Projeto } from "../types/domain";
+import type {
+  AreaCadastro,
+  Cliente,
+  Demanda,
+  Profile,
+  Projeto,
+} from "../types/domain";
 
 type ProjetoResumo = Pick<
   Projeto,
@@ -75,6 +81,7 @@ export function Dashboard() {
   const [demandas, setDemandas] = useState<Demanda[]>([]);
   const [projetos, setProjetos] = useState<ProjetoResumo[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [areas, setAreas] = useState<AreaCadastro[]>([]);
   const [colaboradores, setColaboradores] = useState<ColaboradorResumo[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -87,7 +94,7 @@ export function Dashboard() {
     setLoading(true);
     setErrorMessage("");
 
-    const [demandasRes, projetosRes, clientesRes, colaboradoresRes] =
+    const [demandasRes, projetosRes, clientesRes, areasRes, colaboradoresRes] =
       await Promise.all([
         supabase
           .from("demandas")
@@ -98,6 +105,7 @@ export function Dashboard() {
           .select("*")
           .order("nome", { ascending: true }),
         supabase.from("clientes").select("id,nome"),
+        supabase.from("areas").select("id,nome,slug,cor,ativo"),
         supabase.from("profiles").select("id,nome,role,ativo"),
       ]);
 
@@ -105,6 +113,7 @@ export function Dashboard() {
       ["demandas", demandasRes.error],
       ["projetos", projetosRes.error],
       ["clientes", clientesRes.error],
+      ["areas", areasRes.error],
       ["profiles", colaboradoresRes.error],
     ].filter(([, error]) => Boolean(error));
 
@@ -126,6 +135,7 @@ export function Dashboard() {
     setDemandas((demandasRes.data as Demanda[]) ?? []);
     setProjetos((projetosRes.data as ProjetoResumo[]) ?? []);
     setClientes((clientesRes.data as Cliente[]) ?? []);
+    setAreas((areasRes.data as AreaCadastro[]) ?? []);
     setColaboradores((colaboradoresRes.data as ColaboradorResumo[]) ?? []);
     setLoading(false);
   }, []);
@@ -149,6 +159,11 @@ export function Dashboard() {
         colaboradores.map((colaborador) => [colaborador.id, colaborador])
       ),
     [colaboradores]
+  );
+
+  const areasMap = useMemo(
+    () => new Map(areas.map((area) => [area.id, area])),
+    [areas]
   );
 
   const demandasNoPeriodo = useMemo(
@@ -189,7 +204,9 @@ export function Dashboard() {
         demandasDoProjeto.length === 0
           ? 0
           : Math.round((concluidas / demandasDoProjeto.length) * 100);
-      const areaPrincipal = getAreaPrincipal(demandasDoProjeto);
+      const areaPrincipal =
+        (projeto.area_id ? areasMap.get(projeto.area_id)?.slug : null) ??
+        getAreaPrincipal(demandasDoProjeto);
       const prazoMaisProximo =
         projeto.prazo_final ?? getPrazoMaisProximo(demandasDoProjeto);
       const responsavel =
@@ -222,7 +239,14 @@ export function Dashboard() {
           projeto.demandas > 0 ||
           isProjectWithinCompetence(projeto, competenceFilter)
       );
-  }, [clientesMap, colaboradoresMap, competenceFilter, demandasNoPeriodo, projetos]);
+  }, [
+    areasMap,
+    clientesMap,
+    colaboradoresMap,
+    competenceFilter,
+    demandasNoPeriodo,
+    projetos,
+  ]);
 
   const projetosFiltrados = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -345,19 +369,23 @@ export function Dashboard() {
         },
       ];
 
-  const hoursByAreaItems = Array.from(
-    demandasNoPeriodo.reduce<Map<string, number>>((totals, demanda) => {
-      const area = demanda.area ?? "sem_area";
-      totals.set(area, (totals.get(area) ?? 0) + getEstimatedHours(demanda));
-      return totals;
-    }, new Map())
+  const projectDistributionItems = Array.from(
+    projetosComMetricas
+      .filter((projeto) =>
+        ["ATIVO", "planejado", "em andamento"].includes(projeto.status)
+      )
+      .reduce<Map<string, number>>((totals, projeto) => {
+        const area = projeto.areaPrincipal ?? "sem_area";
+        totals.set(area, (totals.get(area) ?? 0) + 1);
+        return totals;
+      }, new Map())
   )
     .filter(([, value]) => value > 0)
+    .sort(([, valueA], [, valueB]) => valueB - valueA)
     .map(([area, value], index) => ({
       label: areaLabels[area] ?? formatAreaLabel(area),
       value,
       color: areaColors[index % areaColors.length],
-      suffix: "h",
     }));
 
   const statusChartItems = [
@@ -561,12 +589,17 @@ export function Dashboard() {
       </section>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <ChartCard title="Distribuição de Horas por Área">
-          <DonutChart
-            total={horasEstimadas}
-            totalLabel="Total"
-            centerValue={`${horasEstimadas}h`}
-            items={hoursByAreaItems}
+        <ChartCard
+          title={
+            isExecutiveView
+              ? "Projetos ativos por setor"
+              : "Projetos ativos por área"
+          }
+        >
+          <HorizontalBarChart
+            total={projetosAtivos}
+            emptyLabel="Nenhum projeto ativo no período."
+            items={projectDistributionItems}
           />
         </ChartCard>
 
@@ -863,6 +896,59 @@ function DonutChart({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function HorizontalBarChart({
+  total,
+  emptyLabel,
+  items,
+}: {
+  total: number;
+  emptyLabel: string;
+  items: ChartItem[];
+}) {
+  if (total === 0 || items.length === 0) {
+    return <p className="mt-6 text-sm text-slate-500">{emptyLabel}</p>;
+  }
+
+  return (
+    <div className="mt-5 space-y-4">
+      {items.map((item) => {
+        const percentValue = percent(item.value, total);
+
+        return (
+          <div key={item.label} className="space-y-2">
+            <div className="flex items-center justify-between gap-4 text-sm">
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: item.color }}
+                />
+                <span className="truncate font-medium text-slate-700">
+                  {item.label}
+                </span>
+              </div>
+              <span className="shrink-0 font-semibold text-slate-950">
+                {item.value} projeto(s)
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-100">
+              <div
+                className="h-2 rounded-full"
+                style={{
+                  width: `${percentValue}%`,
+                  backgroundColor: item.color,
+                }}
+              />
+            </div>
+            <p className="text-xs font-medium text-slate-500">
+              {percentValue}% dos projetos ativos
+            </p>
+          </div>
+        );
+      })}
     </div>
   );
 }
