@@ -46,6 +46,12 @@ type ChartItem = {
   suffix?: string;
 };
 
+type WorkloadItem = {
+  label: string;
+  planned: number;
+  realized: number;
+};
+
 const areaLabels: Record<string, string> = {
   produto: "Produto",
   marketing: "Marketing",
@@ -292,13 +298,6 @@ export function Dashboard() {
     (total, demanda) => total + getWorkedHours(demanda),
     0
   );
-  const horasAtivas = demandasNoPeriodo
-    .filter((demanda) =>
-      ["pendente", "em andamento", "bloqueado"].includes(demanda.status)
-    )
-    .reduce((total, demanda) => total + getEstimatedHours(demanda), 0);
-  const capacidadeUtilizada =
-    horasEstimadas === 0 ? 0 : Math.round((horasAtivas / horasEstimadas) * 100);
   const orcamentoTotal = projetosComMetricas.reduce(
     (total: number, projeto) => total + getProjectBudget(projeto),
     0
@@ -357,7 +356,7 @@ export function Dashboard() {
           icon: <Clock3 size={19} />,
           label: "Horas planejadas",
           value: `${horasEstimadas}h`,
-          helper: `${capacidadeUtilizada}% em demandas ativas`,
+          helper: `${percent(horasRealizadas, horasEstimadas)}% realizado`,
           color: "purple" as const,
         },
         {
@@ -410,6 +409,31 @@ export function Dashboard() {
       color: "#22c55e",
     },
   ].filter((item) => item.value > 0);
+
+  const plannedVsRealizedItems = Array.from(
+    demandasNoPeriodo.reduce<Map<string, WorkloadItem>>((totals, demanda) => {
+      const key = isExecutiveView
+        ? demanda.area ?? "sem_area"
+        : demanda.colaborador_id ?? "sem_responsavel";
+      const current = totals.get(key) ?? {
+        label: isExecutiveView
+          ? areaLabels[key] ?? formatAreaLabel(key)
+          : colaboradoresMap.get(key)?.nome ?? "Sem responsável",
+        planned: 0,
+        realized: 0,
+      };
+
+      current.planned += getEstimatedHours(demanda);
+      current.realized += getWorkedHours(demanda);
+      totals.set(key, current);
+
+      return totals;
+    }, new Map())
+  )
+    .map(([, item]) => item)
+    .filter((item) => item.planned > 0 || item.realized > 0)
+    .sort((a, b) => b.planned - a.planned)
+    .slice(0, 6);
 
   function exportarRelatorio() {
     const header = [
@@ -614,7 +638,7 @@ export function Dashboard() {
         </ChartCard>
 
         <ChartCard
-          title="Capacidade da Equipe"
+          title="Planejado x Realizado"
           className="xl:col-span-2"
           action={
             <button className="text-sm font-semibold text-blue-600">
@@ -622,11 +646,7 @@ export function Dashboard() {
             </button>
           }
         >
-          <CapacityGauge
-            percent={capacidadeUtilizada}
-            used={horasAtivas}
-            total={horasEstimadas}
-          />
+          <PlannedVsRealizedChart items={plannedVsRealizedItems} />
         </ChartCard>
       </section>
 
@@ -901,37 +921,89 @@ function DonutChart({
   );
 }
 
-function CapacityGauge({
-  percent: percentValue,
-  used,
-  total,
-}: {
-  percent: number;
-  used: number;
-  total: number;
-}) {
+function PlannedVsRealizedChart({ items }: { items: WorkloadItem[] }) {
+  const maxHours = Math.max(
+    1,
+    ...items.flatMap((item) => [item.planned, item.realized])
+  );
+
+  if (items.length === 0) {
+    return (
+      <p className="mt-6 text-sm text-slate-500">
+        Nenhuma hora planejada ou realizada no período.
+      </p>
+    );
+  }
+
   return (
-    <div className="mt-5 grid gap-3 md:grid-cols-[160px_1fr] md:items-center">
-      <div>
-        <p className="text-4xl font-semibold tracking-tight text-slate-950">
-          {percentValue}%
-        </p>
-        <p className="mt-1 text-xs font-medium text-slate-500">
-          da capacidade utilizada
-        </p>
+    <div className="mt-5 space-y-4">
+      <div className="flex items-center gap-4 text-xs font-semibold text-slate-500">
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-blue-600" />
+          Planejado
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+          Realizado
+        </span>
       </div>
 
-      <div>
-        <div className="h-2 rounded-full bg-slate-100">
-          <div
-            className="h-2 rounded-full bg-emerald-500"
-            style={{ width: `${Math.min(percentValue, 100)}%` }}
-          />
-        </div>
-        <p className="mt-2 text-xs text-slate-500">
-          {used}h utilizadas de {total}h estimadas
-        </p>
+      <div className="space-y-3">
+        {items.map((item) => {
+          const realizedPercent = percent(item.realized, item.planned);
+
+          return (
+            <div
+              key={item.label}
+              className="grid gap-2 md:grid-cols-[180px_1fr_120px] md:items-center"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-800">
+                  {item.label}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {realizedPercent}% realizado
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <ComparisonBar
+                  value={item.planned}
+                  max={maxHours}
+                  color="bg-blue-600"
+                />
+                <ComparisonBar
+                  value={item.realized}
+                  max={maxHours}
+                  color="bg-emerald-500"
+                />
+              </div>
+
+              <div className="text-sm font-semibold text-slate-700 md:text-right">
+                {item.planned}h / {item.realized}h
+              </div>
+            </div>
+          );
+        })}
       </div>
+    </div>
+  );
+}
+
+function ComparisonBar({
+  value,
+  max,
+  color,
+}: {
+  value: number;
+  max: number;
+  color: string;
+}) {
+  const width = Math.max(3, Math.round((value / max) * 100));
+
+  return (
+    <div className="h-2 rounded-full bg-slate-100">
+      <div className={`h-2 rounded-full ${color}`} style={{ width: `${width}%` }} />
     </div>
   );
 }
