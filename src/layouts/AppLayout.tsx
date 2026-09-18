@@ -11,6 +11,7 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import fortTechSidebarLogo from "../assets/forttech-sidebar-logo.jpg";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
+import { getRoleLabel } from "../utils/roles";
 
 type NavLinkItem = {
   to: string;
@@ -29,7 +30,7 @@ type PendingDemandNotification = {
 export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { profile, signOut, isGestor, isColaborador } = useAuth();
+  const { profile, signOut, isGestor, isDiretoria, isColaborador } = useAuth();
   const [novasDemandasCount, setNovasDemandasCount] = useState(0);
 
   useEffect(() => {
@@ -81,7 +82,11 @@ export function AppLayout() {
   }
 
   const gestorLinks: NavLinkItem[] = [
-    { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    {
+      to: "/dashboard",
+      label: isDiretoria ? "Visão executiva" : "Dashboard",
+      icon: LayoutDashboard,
+    },
     { to: "/kanban", label: "Analítico", icon: BarChart3 },
   ];
 
@@ -144,7 +149,7 @@ export function AppLayout() {
           <div className="rounded-xl border border-slate-200 bg-white p-3.5">
             <p className="font-semibold text-slate-900">{profile?.nome}</p>
             <p className="mt-1 text-xs font-medium text-blue-600">
-              {profile?.role}
+              {profile?.cargo ?? getRoleLabel(profile?.role)}
             </p>
           </div>
 

@@ -4,6 +4,11 @@ import type { User } from "@supabase/supabase-js";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { AuthContext } from "./auth";
 import type { Profile } from "../types/domain";
+import {
+  isCollaboratorRole,
+  isExecutiveProfile,
+  isManagementRole,
+} from "../utils/roles";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -13,7 +18,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function loadProfile(userId: string) {
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, user_id, nome, email, role, ativo")
+      .select("id, user_id, nome, email, role, ativo, cargo, avatar_url, cliente_id, area_id")
       .eq("user_id", userId)
       .single();
 
@@ -74,8 +79,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         profile,
         loading,
-        isGestor: profile?.role === "GESTOR",
-        isColaborador: profile?.role === "COLABORADOR",
+        isGestor: isManagementRole(profile?.role),
+        isDiretoria: isExecutiveProfile(profile),
+        isColaborador: isCollaboratorRole(profile?.role),
         signOut,
       }}
     >

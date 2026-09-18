@@ -1,4 +1,9 @@
-export type Role = "COLABORADOR" | "GESTOR";
+export type Role =
+  | "COLABORADOR"
+  | "GESTOR"
+  | "DIRETOR"
+  | "ADMIN"
+  | "SUPERADMIN";
 
 export type DemandStatus =
   | "pendente"

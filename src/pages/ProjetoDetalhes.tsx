@@ -2779,7 +2779,7 @@ function getInitials(name: string) {
 }
 
 function canManageProject(role?: string | null) {
-  return ["GESTOR", "DIRETOR", "ADMIN"].includes(
+  return ["GESTOR", "DIRETOR", "ADMIN", "SUPERADMIN"].includes(
     role?.trim().toUpperCase() ?? ""
   );
 }

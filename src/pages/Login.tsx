@@ -40,7 +40,7 @@ export function Login() {
 
     const { data: profileData, error: profileError } = await supabase
       .from("profiles")
-      .select("id, nome, email, role, ativo")
+      .select("id, nome, email, role, ativo, cargo")
       .eq("user_id", data.user.id)
       .single();
 

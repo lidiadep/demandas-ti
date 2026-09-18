@@ -7,6 +7,7 @@ export type AuthContextData = {
   profile: Profile | null;
   loading: boolean;
   isGestor: boolean;
+  isDiretoria: boolean;
   isColaborador: boolean;
   signOut: () => Promise<void>;
 };

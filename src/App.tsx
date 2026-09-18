@@ -10,6 +10,7 @@ import { NovoProjeto } from "./pages/NovoProjeto";
 import { DemandaDetalhes } from "./pages/DemandaDetalhes";
 import { ProtectedRoute } from "./routes/ProtectedRoute";
 import { isSupabaseConfigured, missingSupabaseEnvVars } from "./lib/supabase";
+import { managementRoles } from "./utils/roles";
 
 export default function App() {
   if (!isSupabaseConfigured) {
@@ -26,7 +27,7 @@ export default function App() {
           <Route element={<AppLayout />}>
             <Route path="/demandas/:id" element={<DemandaDetalhes />} />
 
-            <Route element={<ProtectedRoute allowedRoles={["GESTOR"]} />}>
+            <Route element={<ProtectedRoute allowedRoles={managementRoles} />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/projetos" element={<Navigate to="/dashboard" replace />} />
               <Route path="/novo-projeto" element={<NovoProjeto />} />

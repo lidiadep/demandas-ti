@@ -24,6 +24,7 @@ import type {
   Profile,
   Projeto,
 } from "../types/domain";
+import { isExecutiveProfile } from "../utils/roles";
 
 type ProjetoResumo = Pick<
   Projeto,
@@ -325,7 +326,7 @@ export function Dashboard() {
     (total: number, projeto) => total + getProjectBudget(projeto),
     0
   );
-  const isExecutiveView = isExecutiveRole(profile?.role);
+  const isExecutiveView = isExecutiveProfile(profile);
   const kpiItems = isExecutiveView
     ? [
         {
@@ -1368,12 +1369,6 @@ function getGreeting() {
 
 function getFirstName(name?: string | null) {
   return name?.trim().split(" ")[0] || "bem-vindo";
-}
-
-function isExecutiveRole(role?: string | null) {
-  return ["DIRETOR", "SUPERADMIN", "ADMIN"].includes(
-    role?.trim().toUpperCase() ?? ""
-  );
 }
 
 function getProjectBudget(projeto: ProjetoResumo): number {
