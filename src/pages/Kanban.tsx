@@ -299,7 +299,9 @@ export function Kanban() {
         ? projetosMap.get(demanda.projeto_id)
         : null;
       const cliente = projeto ? clientesMap.get(projeto.cliente_id) : null;
-      const responsavel = colaboradoresMap.get(demanda.colaborador_id);
+      const responsavel = demanda.colaborador_id
+        ? colaboradoresMap.get(demanda.colaborador_id)
+        : null;
       const areaCadastro = demanda.area_id
         ? areasMap.get(demanda.area_id)
         : null;
@@ -321,7 +323,10 @@ export function Kanban() {
         projetoCodigo: projeto?.codigo ?? "Sem código",
         projetoNome: projeto?.nome ?? "Sem projeto",
         clienteNome: cliente?.nome ?? "Cliente não informado",
-        responsavelNome: responsavel?.nome ?? "Responsável não informado",
+        responsavelNome:
+          responsavel?.nome ??
+          fornecedor?.nome ??
+          "Responsável não informado",
         responsavelAvatar: responsavel?.avatar_url ?? null,
         prioridadeNome: priorityFallbackLabels[prioridadeSlug] ?? prioridadeSlug,
         prioridadeSlug,
@@ -2311,7 +2316,9 @@ function buildEffortMetrics(demandas: DemandaCard[]) {
     current.value += hours;
     current.total += 1;
     totals.set(slug, current);
-    collaborators.add(demanda.colaborador_id);
+    if (demanda.colaborador_id) {
+      collaborators.add(demanda.colaborador_id);
+    }
     totalHours += hours;
 
     if (!["concluido", "cancelado"].includes(status)) {

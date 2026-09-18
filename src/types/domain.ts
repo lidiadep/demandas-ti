@@ -106,7 +106,7 @@ export type Projeto = {
 export type Demanda = {
   id: string;
   projeto_id: string;
-  colaborador_id: string;
+  colaborador_id: string | null;
   titulo: string;
   descricao: string | null;
   area: Area | string | null;

@@ -243,7 +243,7 @@ export function Dashboard() {
         (projeto.responsavel_id
           ? colaboradoresMap.get(projeto.responsavel_id)?.nome
           : null) ??
-        (demandasDoProjeto[0]
+        (demandasDoProjeto[0]?.colaborador_id
           ? colaboradoresMap.get(demandasDoProjeto[0].colaborador_id)?.nome
           : null) ??
         "-";

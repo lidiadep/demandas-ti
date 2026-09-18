@@ -543,7 +543,7 @@ export function ProjetoDetalhes() {
       tipoTrabalhoId: demanda.tipo_trabalho_id ?? "",
       execucaoTipo: demanda.execucao_tipo === "externa" ? "externa" : "interna",
       fornecedorId: demanda.fornecedor_id ?? "",
-      colaboradorId: demanda.colaborador_id,
+      colaboradorId: demanda.colaborador_id ?? "",
       prioridadeId:
         demanda.prioridade_id ||
         prioridades.find(
@@ -616,6 +616,29 @@ export function ProjetoDetalhes() {
     if (error && import.meta.env.DEV) {
       console.warn("Não foi possível registrar histórico do projeto", error);
     }
+  }
+
+  async function vincularColaboradoresAoProjeto(
+    colaboradoresParaVincular: ColaboradorCategoria[]
+  ) {
+    if (!id || colaboradoresParaVincular.length === 0) {
+      return null;
+    }
+
+    const membrosParaCriar = colaboradoresParaVincular.map((colaborador) => ({
+      projeto_id: id,
+      profile_id: colaborador.id,
+      papel: "Responsável por demanda",
+      alocacao_percentual: 100,
+      ativo: true,
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error } = await supabase
+      .from("projeto_membros")
+      .upsert(membrosParaCriar, { onConflict: "projeto_id,profile_id" });
+
+    return error;
   }
 
   async function salvarEdicaoProjeto(event: FormEvent<HTMLFormElement>) {
@@ -694,19 +717,21 @@ export function ProjetoDetalhes() {
       (tipo) => tipo.id === projectDemandForm.tipoTrabalhoId
     );
     const horasEstimadas = Number(projectDemandForm.horasEstimadas);
+    const isExternalDemand = projectDemandForm.execucaoTipo === "externa";
 
     if (
       !id ||
       !profile ||
       !selectedArea ||
       !selectedType ||
-      (projectDemandForm.execucaoTipo === "externa" &&
-        !projectDemandForm.fornecedorId) ||
-      projectDemandForm.colaboradorIds.length === 0 ||
+      (isExternalDemand && !projectDemandForm.fornecedorId) ||
+      (!isExternalDemand && projectDemandForm.colaboradorIds.length === 0) ||
       !projectDemandForm.titulo.trim()
     ) {
       setProjectDemandError(
-        "Preencha categoria, tipo, execução, responsável e título."
+        isExternalDemand
+          ? "Preencha categoria, tipo, execução, fornecedor e título."
+          : "Preencha categoria, tipo, execução, responsável e título."
       );
       return;
     }
@@ -718,9 +743,12 @@ export function ProjetoDetalhes() {
 
     setSavingProjectDemand(true);
 
-    const demandasParaCriar = colaboradoresSelecionados.map((colaborador) => ({
+    const responsaveisDaDemanda =
+      colaboradoresSelecionados.length > 0 ? colaboradoresSelecionados : [null];
+
+    const demandasParaCriar = responsaveisDaDemanda.map((colaborador) => ({
       projeto_id: id,
-      colaborador_id: colaborador.id,
+      colaborador_id: colaborador?.id ?? null,
       titulo: projectDemandForm.titulo.trim(),
       descricao: projectDemandForm.descricao.trim() || null,
       area: selectedArea.slug,
@@ -751,10 +779,25 @@ export function ProjetoDetalhes() {
       return;
     }
 
+    const membrosError = await vincularColaboradoresAoProjeto(
+      colaboradoresSelecionados
+    );
+
+    if (membrosError) {
+      setProjectDemandError(
+        `Demanda criada, mas não foi possível atualizar a equipe: ${membrosError.message}`
+      );
+      setSavingProjectDemand(false);
+      await carregarDados();
+      return;
+    }
+
     await registrarHistoricoProjeto(
-      `Nova demanda "${projectDemandForm.titulo.trim()}" enviada pelo gestor para ${colaboradoresSelecionados
-        .map((colaborador) => colaborador.nome)
-        .join(", ")}.`
+      `Nova demanda "${projectDemandForm.titulo.trim()}" enviada pelo gestor para ${
+        colaboradoresSelecionados.length > 0
+          ? colaboradoresSelecionados.map((colaborador) => colaborador.nome).join(", ")
+          : "responsável externo"
+      }.`
     );
 
     setProjectDemandForm(getEmptyProjectDemandForm());
@@ -780,18 +823,21 @@ export function ProjetoDetalhes() {
     );
     const horasEstimadas = Number(demandEditForm.horasEstimadas);
     const horasRealizadas = Number(demandEditForm.horasRealizadas || 0);
+    const isExternalDemand = demandEditForm.execucaoTipo === "externa";
 
     if (
       !demandEditForm.demandaId ||
       !selectedArea ||
       !selectedType ||
       !selectedPriority ||
-      !demandEditForm.colaboradorId ||
+      (!isExternalDemand && !demandEditForm.colaboradorId) ||
       !demandEditForm.titulo.trim() ||
-      (demandEditForm.execucaoTipo === "externa" && !demandEditForm.fornecedorId)
+      (isExternalDemand && !demandEditForm.fornecedorId)
     ) {
       setDemandEditError(
-        "Preencha categoria, tipo, responsável, prioridade, execução e título."
+        isExternalDemand
+          ? "Preencha categoria, tipo, fornecedor, prioridade, execução e título."
+          : "Preencha categoria, tipo, responsável, prioridade, execução e título."
       );
       return;
     }
@@ -814,7 +860,7 @@ export function ProjetoDetalhes() {
     const { error } = await supabase
       .from("demandas")
       .update({
-        colaborador_id: demandEditForm.colaboradorId,
+        colaborador_id: demandEditForm.colaboradorId || null,
         titulo: demandEditForm.titulo.trim(),
         descricao: demandEditForm.descricao.trim() || null,
         area: selectedArea.slug,
@@ -839,6 +885,22 @@ export function ProjetoDetalhes() {
     if (error) {
       setDemandEditError(`Não foi possível salvar a demanda: ${error.message}`);
       setSavingDemandEdit(false);
+      return;
+    }
+
+    const colaboradorSelecionado = colaboradoresAtivos.find(
+      (colaborador) => colaborador.id === demandEditForm.colaboradorId
+    );
+    const membrosError = await vincularColaboradoresAoProjeto(
+      colaboradorSelecionado ? [colaboradorSelecionado] : []
+    );
+
+    if (membrosError) {
+      setDemandEditError(
+        `Demanda atualizada, mas não foi possível atualizar a equipe: ${membrosError.message}`
+      );
+      setSavingDemandEdit(false);
+      await carregarDados();
       return;
     }
 
@@ -1449,14 +1511,14 @@ function DemandEditModal({
               </label>
 
               <label className="block text-sm font-semibold text-slate-700">
-                Responsável *
+                Responsável {form.execucaoTipo === "interna" ? "*" : "interno"}
                 <select
                   value={form.colaboradorId}
                   onChange={(event) =>
                     onFormChange({ ...form, colaboradorId: event.target.value })
                   }
                   className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
-                  required
+                  required={form.execucaoTipo === "interna"}
                 >
                   <option value="">Selecione</option>
                   {colaboradores.map((colaborador) => (
@@ -1465,6 +1527,12 @@ function DemandEditModal({
                     </option>
                   ))}
                 </select>
+                {form.execucaoTipo === "externa" && (
+                  <span className="mt-2 block text-xs font-medium text-slate-500">
+                    Opcional para demandas externas. O fornecedor pode representar
+                    o responsável operacional.
+                  </span>
+                )}
               </label>
             </div>
 
@@ -1904,7 +1972,7 @@ function ProjectDemandCreatePanel({
 
         <fieldset className="rounded-xl border border-slate-200 p-4">
           <legend className="px-1 text-sm font-semibold text-slate-700">
-            Responsáveis *
+            Responsáveis {form.execucaoTipo === "interna" ? "*" : "internos"}
           </legend>
           <div className="mt-3 grid max-h-44 grid-cols-1 gap-2 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
             {colaboradores.map((colaborador) => {
@@ -1940,13 +2008,22 @@ function ProjectDemandCreatePanel({
               Nenhum colaborador ativo encontrado.
             </p>
           )}
+          {form.execucaoTipo === "externa" && (
+            <p className="mt-3 text-xs font-medium text-slate-500">
+              Para demandas externas, o fornecedor selecionado pode ser o responsável
+              operacional mesmo sem usuário cadastrado. Se houver um ponto focal
+              interno, selecione-o aqui para adicioná-lo à equipe do projeto.
+            </p>
+          )}
         </fieldset>
 
         <div className="flex flex-col gap-3 rounded-xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700 md:flex-row md:items-center md:justify-between">
           <span>
             {form.colaboradorIds.length > 0
               ? `${form.colaboradorIds.length} colaborador(es) selecionado(s) receberão esta demanda.`
-              : "Selecione ao menos um colaborador para receber esta demanda."}
+              : form.execucaoTipo === "externa"
+                ? "A demanda será registrada como responsabilidade externa."
+                : "Selecione ao menos um colaborador para receber esta demanda."}
           </span>
           <button
             type="submit"
@@ -2063,7 +2140,7 @@ function DemandasTab({
                   <Deadline value={demanda.prazo_finalizacao} />
                 </td>
                 <td className="px-5 py-4 text-slate-700">
-                  {demanda.responsavel_nome ?? "-"}
+                  {getDemandResponsibleName(demanda)}
                 </td>
                 <td className="px-5 py-4 text-right">
                   <button
@@ -2216,7 +2293,7 @@ function GanttRow({
           {item.demanda.titulo}
         </p>
         <p className="mt-1 text-xs text-slate-500">
-          {item.demanda.responsavel_nome ?? "-"} • {getEstimatedHours(item.demanda)}h
+          {getDemandResponsibleName(item.demanda)} • {getEstimatedHours(item.demanda)}h
         </p>
       </div>
 
@@ -2845,9 +2922,9 @@ function buildProjectHistoryEvents(
       title: `Demanda criada: ${demanda.titulo}`,
       description:
         demanda.origem === "gestor"
-          ? `Demanda enviada pelo gestor para ${demanda.responsavel_nome ?? "responsável não informado"}.`
-          : `Demanda vinculada ao projeto para ${demanda.responsavel_nome ?? "responsável não informado"}.`,
-      author: demanda.origem === "gestor" ? "Gestão" : demanda.responsavel_nome ?? "Sistema",
+          ? `Demanda enviada pelo gestor para ${getDemandResponsibleName(demanda)}.`
+          : `Demanda vinculada ao projeto para ${getDemandResponsibleName(demanda)}.`,
+      author: demanda.origem === "gestor" ? "Gestão" : getDemandResponsibleName(demanda),
       createdAt: demanda.created_at,
       tone: "demand",
     });
@@ -2859,7 +2936,7 @@ function buildProjectHistoryEvents(
         description: `Status atual: ${getDemandStatusLabel(demanda.status)}. Horas: ${getWorkedHours(
           demanda
         )}h realizadas de ${getEstimatedHours(demanda)}h estimadas.`,
-        author: demanda.responsavel_nome ?? "Sistema",
+        author: getDemandResponsibleName(demanda),
         createdAt: demanda.updated_at,
         tone: "demand",
       });
@@ -2879,6 +2956,18 @@ function getHistoryToneStyle(tone: ProjetoTimelineEvent["tone"]) {
   };
 
   return styles[tone];
+}
+
+function getDemandResponsibleName(demanda: DemandaDetalhada) {
+  if (demanda.responsavel_nome) {
+    return demanda.responsavel_nome;
+  }
+
+  if (demanda.execucao_tipo === "externa" && demanda.fornecedor_nome) {
+    return demanda.fornecedor_nome;
+  }
+
+  return "Responsável não informado";
 }
 
 function buildRadarItems(demandas: DemandaDetalhada[]) {
