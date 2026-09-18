@@ -76,6 +76,9 @@ type DemandaDetalhada = Pick<
   | "prioridade"
   | "execucao_tipo"
   | "fornecedor_id"
+  | "origem"
+  | "criada_por_profile_id"
+  | "updated_at"
 > & {
   area_nome: string | null;
   area_slug: string | null;
@@ -125,6 +128,15 @@ type ProjetoHistorico = {
   comentario: string | null;
   created_at: string;
   profiles: Pick<Profile, "nome"> | Pick<Profile, "nome">[] | null;
+};
+
+type ProjetoTimelineEvent = {
+  id: string;
+  title: string;
+  description: string;
+  author: string;
+  createdAt: string;
+  tone: "project" | "demand" | "status";
 };
 
 type TabId =
@@ -496,6 +508,10 @@ export function ProjetoDetalhes() {
     "Não definida";
   const radarItems = useMemo(() => buildRadarItems(demandas), [demandas]);
   const areaMetrics = useMemo(() => getAreaMetrics(demandas), [demandas]);
+  const timelineEvents = useMemo(
+    () => buildProjectHistoryEvents(projeto, demandas, historico),
+    [demandas, historico, projeto]
+  );
   const colaboradoresAtivos = useMemo(
     () =>
       colaboradores.filter(
@@ -580,6 +596,28 @@ export function ProjetoDetalhes() {
     setProjectEditError("");
   }
 
+  async function registrarHistoricoProjeto(
+    comentario: string,
+    statusAnterior?: string | null,
+    statusNovo?: string | null
+  ) {
+    if (!id || !profile) {
+      return;
+    }
+
+    const { error } = await supabase.from("projeto_status_historico").insert({
+      projeto_id: id,
+      profile_id: profile.id,
+      status_anterior: statusAnterior ?? null,
+      status_novo: statusNovo ?? projeto?.status ?? "ATIVO",
+      comentario,
+    });
+
+    if (error && import.meta.env.DEV) {
+      console.warn("Não foi possível registrar histórico do projeto", error);
+    }
+  }
+
   async function salvarEdicaoProjeto(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setProjectEditError("");
@@ -635,6 +673,12 @@ export function ProjetoDetalhes() {
       setSavingProjectEdit(false);
       return;
     }
+
+    await registrarHistoricoProjeto(
+      `Projeto editado por ${profile.nome}. Campos atualizados: dados gerais, planejamento e responsáveis.`,
+      projeto?.status,
+      projeto?.status
+    );
 
     setSavingProjectEdit(false);
     setProjectEditOpen(false);
@@ -707,6 +751,12 @@ export function ProjetoDetalhes() {
       return;
     }
 
+    await registrarHistoricoProjeto(
+      `Nova demanda "${projectDemandForm.titulo.trim()}" enviada pelo gestor para ${colaboradoresSelecionados
+        .map((colaborador) => colaborador.nome)
+        .join(", ")}.`
+    );
+
     setProjectDemandForm(getEmptyProjectDemandForm());
     setSavingProjectDemand(false);
     await carregarDados();
@@ -757,6 +807,9 @@ export function ProjetoDetalhes() {
     }
 
     setSavingDemandEdit(true);
+    const demandaAnterior = demandas.find(
+      (demanda) => demanda.id === demandEditForm.demandaId
+    );
 
     const { error } = await supabase
       .from("demandas")
@@ -788,6 +841,12 @@ export function ProjetoDetalhes() {
       setSavingDemandEdit(false);
       return;
     }
+
+    await registrarHistoricoProjeto(
+      `Demanda "${demandEditForm.titulo.trim()}" atualizada por ${profile.nome}. Status: ${getDemandStatusLabel(
+        demandaAnterior?.status ?? "pendente"
+      )} → ${getDemandStatusLabel(demandEditForm.status)}.`
+    );
 
     setSavingDemandEdit(false);
     setDemandEditOpen(false);
@@ -958,9 +1017,15 @@ export function ProjetoDetalhes() {
       {activeTab === "team" && (
         <EquipeTab membros={membros} responsavelNome={responsavelNome} />
       )}
-      {activeTab === "timeline" && <EntregasTab entregas={entregas} />}
+      {activeTab === "timeline" && (
+        <CronogramaTab
+          demandas={demandas}
+          projetoInicio={projeto.data_inicio}
+          projetoPrazo={prazoFinal}
+        />
+      )}
       {activeTab === "docs" && <DocumentosTab documentos={documentos} />}
-      {activeTab === "history" && <HistoricoTab historico={historico} />}
+      {activeTab === "history" && <HistoricoTab eventos={timelineEvents} />}
 
       <footer className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pb-2 text-sm font-medium text-slate-500">
         <span>Total de Demandas: {demandasTotal}</span>
@@ -2070,18 +2135,111 @@ function EquipeTab({
   );
 }
 
-function EntregasTab({ entregas }: { entregas: ProjetoEntrega[] }) {
+function CronogramaTab({
+  demandas,
+  projetoInicio,
+  projetoPrazo,
+}: {
+  demandas: DemandaDetalhada[];
+  projetoInicio: string | null;
+  projetoPrazo: string | null;
+}) {
+  const ganttItems = buildGanttItems(demandas, projetoInicio, projetoPrazo);
+  const range = getGanttRange(ganttItems, projetoInicio, projetoPrazo);
+
   return (
-    <Panel title="Cronograma e entregas">
-      <div className="space-y-3">
-        {entregas.map((entrega) => (
-          <DeliveryRow key={entrega.id} entrega={entrega} />
-        ))}
-      </div>
-      {entregas.length === 0 && (
-        <EmptyState>Nenhuma entrega cadastrada.</EmptyState>
+    <Panel title="Cronograma das demandas">
+      {ganttItems.length > 0 && range ? (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm">
+            <span className="font-semibold text-slate-700">
+              {formatDate(toDateInputValue(range.start))} até{" "}
+              {formatDate(toDateInputValue(range.end))}
+            </span>
+            <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-500">
+              <LegendDot color="bg-amber-500" label="Pendente" />
+              <LegendDot color="bg-blue-600" label="Em andamento" />
+              <LegendDot color="bg-red-500" label="Bloqueada/Atrasada" />
+              <LegendDot color="bg-emerald-500" label="Concluída" />
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <div className="min-w-[860px] space-y-3">
+              <div className="grid grid-cols-[260px_1fr_160px] gap-4 px-1 text-xs font-bold uppercase text-slate-400">
+                <span>Demanda</span>
+                <span>Período</span>
+                <span>Status</span>
+              </div>
+
+              {ganttItems.map((item) => (
+                <GanttRow key={item.demanda.id} item={item} range={range} />
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <EmptyState>Nenhuma demanda vinculada ao projeto.</EmptyState>
       )}
     </Panel>
+  );
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`h-2.5 w-2.5 rounded-full ${color}`} />
+      {label}
+    </span>
+  );
+}
+
+function GanttRow({
+  item,
+  range,
+}: {
+  item: GanttItem;
+  range: { start: Date; end: Date };
+}) {
+  const totalDays = Math.max(1, diffDays(range.start, range.end));
+  const offset = Math.max(0, diffDays(range.start, item.start));
+  const duration = Math.max(1, diffDays(item.start, item.end) + 1);
+  const left = Math.min(96, Math.round((offset / totalDays) * 100));
+  const width = Math.max(4, Math.round((duration / totalDays) * 100));
+  const status = normalizeStatus(item.demanda.status);
+  const barColor = getGanttBarColor(item.demanda);
+
+  return (
+    <div className="grid grid-cols-[260px_1fr_160px] gap-4 rounded-xl border border-slate-100 bg-white p-3">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-bold text-slate-950">
+          {item.demanda.titulo}
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          {item.demanda.responsavel_nome ?? "-"} • {getEstimatedHours(item.demanda)}h
+        </p>
+      </div>
+
+      <div>
+        <div className="relative h-9 rounded-full bg-slate-100">
+          <div
+            className={`absolute top-1/2 h-5 -translate-y-1/2 rounded-full ${barColor}`}
+            style={{
+              left: `${left}%`,
+              width: `${Math.min(width, 100 - left)}%`,
+            }}
+          />
+        </div>
+        <p className="mt-1 text-xs font-medium text-slate-500">
+          {formatDate(toDateInputValue(item.start))} -{" "}
+          {formatDate(toDateInputValue(item.end))}
+        </p>
+      </div>
+
+      <div className="flex items-center justify-end">
+        <DemandStatusBadge status={status} />
+      </div>
+    </div>
   );
 }
 
@@ -2116,35 +2274,33 @@ function DocumentosTab({ documentos }: { documentos: ProjetoDocumento[] }) {
   );
 }
 
-function HistoricoTab({ historico }: { historico: ProjetoHistorico[] }) {
+function HistoricoTab({ eventos }: { eventos: ProjetoTimelineEvent[] }) {
   return (
     <Panel title="Histórico de atualizações">
       <div className="space-y-3">
-        {historico.map((item) => (
+        {eventos.map((item) => (
           <div
             key={item.id}
             className="flex items-start gap-3 rounded-xl border border-slate-200 p-4"
           >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+            <span
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${getHistoryToneStyle(
+                item.tone
+              )}`}
+            >
               <History size={18} />
             </span>
             <div>
-              <p className="font-bold text-slate-950">
-                {item.status_anterior
-                  ? `${getProjectStatusLabel(item.status_anterior, 0)} → ${getProjectStatusLabel(item.status_novo, 0)}`
-                  : getProjectStatusLabel(item.status_novo, 0)}
-              </p>
+              <p className="font-bold text-slate-950">{item.title}</p>
               <p className="mt-1 text-sm text-slate-500">
-                {formatDate(item.created_at)} • {getHistoryAuthor(item)}
+                {formatDate(item.createdAt)} • {item.author}
               </p>
-              {item.comentario && (
-                <p className="mt-2 text-sm text-slate-600">{item.comentario}</p>
-              )}
+              <p className="mt-2 text-sm text-slate-600">{item.description}</p>
             </div>
           </div>
         ))}
       </div>
-      {historico.length === 0 && (
+      {eventos.length === 0 && (
         <EmptyState>Nenhum histórico cadastrado.</EmptyState>
       )}
     </Panel>
@@ -2541,6 +2697,188 @@ function Deadline({ value }: { value: string | null }) {
       </p>
     </div>
   );
+}
+
+type GanttItem = {
+  demanda: DemandaDetalhada;
+  start: Date;
+  end: Date;
+};
+
+function buildGanttItems(
+  demandas: DemandaDetalhada[],
+  projetoInicio: string | null,
+  projetoPrazo: string | null
+) {
+  return demandas
+    .map((demanda) => {
+      const startValue = demanda.data_inicio ?? demanda.created_at ?? projetoInicio;
+      const endValue =
+        demanda.prazo_finalizacao ??
+        demanda.data_inicio ??
+        demanda.created_at ??
+        projetoPrazo;
+
+      if (!startValue || !endValue) {
+        return null;
+      }
+
+      const start = parseDate(startValue);
+      const end = parseDate(endValue);
+
+      return {
+        demanda,
+        start,
+        end: end < start ? start : end,
+      };
+    })
+    .filter((item): item is GanttItem => Boolean(item))
+    .sort((a, b) => a.start.getTime() - b.start.getTime());
+}
+
+function getGanttRange(
+  items: GanttItem[],
+  projetoInicio: string | null,
+  projetoPrazo: string | null
+) {
+  const dates = [
+    ...items.flatMap((item) => [item.start, item.end]),
+    projetoInicio ? parseDate(projetoInicio) : null,
+    projetoPrazo ? parseDate(projetoPrazo) : null,
+  ].filter((date): date is Date => Boolean(date));
+
+  if (dates.length === 0) {
+    return null;
+  }
+
+  return {
+    start: new Date(Math.min(...dates.map((date) => date.getTime()))),
+    end: new Date(Math.max(...dates.map((date) => date.getTime()))),
+  };
+}
+
+function diffDays(start: Date, end: Date) {
+  const startDate = startOfDay(start);
+  const endDate = startOfDay(end);
+
+  return Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000);
+}
+
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function getGanttBarColor(demanda: DemandaDetalhada) {
+  const status = normalizeStatus(demanda.status);
+
+  if (status === "concluido") {
+    return "bg-emerald-500";
+  }
+
+  if (status === "bloqueado" || status === "cancelado" || isLate(demanda)) {
+    return "bg-red-500";
+  }
+
+  if (status === "em andamento") {
+    return "bg-blue-600";
+  }
+
+  return "bg-amber-500";
+}
+
+function buildProjectHistoryEvents(
+  projeto: ProjetoMetricas | null,
+  demandas: DemandaDetalhada[],
+  historico: ProjetoHistorico[]
+) {
+  const events: ProjetoTimelineEvent[] = [];
+
+  if (projeto?.created_at) {
+    events.push({
+      id: `project-created-${projeto.id}`,
+      title: "Projeto criado",
+      description: `Projeto "${projeto.nome}" cadastrado na plataforma.`,
+      author: projeto.responsavel_nome ?? "Sistema",
+      createdAt: projeto.created_at,
+      tone: "project",
+    });
+  }
+
+  if (
+    projeto?.updated_at &&
+    projeto.created_at &&
+    projeto.updated_at !== projeto.created_at
+  ) {
+    events.push({
+      id: `project-updated-${projeto.id}`,
+      title: "Projeto atualizado",
+      description: "Informações gerais, planejamento ou responsáveis do projeto foram atualizados.",
+      author: projeto.responsavel_nome ?? "Sistema",
+      createdAt: projeto.updated_at,
+      tone: "project",
+    });
+  }
+
+  historico.forEach((item) => {
+    events.push({
+      id: `history-${item.id}`,
+      title: item.status_anterior
+        ? `${getProjectStatusLabel(item.status_anterior, 0)} → ${getProjectStatusLabel(
+            item.status_novo,
+            0
+          )}`
+        : "Atualização registrada",
+      description: item.comentario ?? getProjectStatusLabel(item.status_novo, 0),
+      author: getHistoryAuthor(item),
+      createdAt: item.created_at,
+      tone: "status",
+    });
+  });
+
+  demandas.forEach((demanda) => {
+    events.push({
+      id: `demand-created-${demanda.id}`,
+      title: `Demanda criada: ${demanda.titulo}`,
+      description:
+        demanda.origem === "gestor"
+          ? `Demanda enviada pelo gestor para ${demanda.responsavel_nome ?? "responsável não informado"}.`
+          : `Demanda vinculada ao projeto para ${demanda.responsavel_nome ?? "responsável não informado"}.`,
+      author: demanda.origem === "gestor" ? "Gestão" : demanda.responsavel_nome ?? "Sistema",
+      createdAt: demanda.created_at,
+      tone: "demand",
+    });
+
+    if (demanda.updated_at && demanda.updated_at !== demanda.created_at) {
+      events.push({
+        id: `demand-updated-${demanda.id}`,
+        title: `Demanda atualizada: ${demanda.titulo}`,
+        description: `Status atual: ${getDemandStatusLabel(demanda.status)}. Horas: ${getWorkedHours(
+          demanda
+        )}h realizadas de ${getEstimatedHours(demanda)}h estimadas.`,
+        author: demanda.responsavel_nome ?? "Sistema",
+        createdAt: demanda.updated_at,
+        tone: "demand",
+      });
+    }
+  });
+
+  return events.sort(
+    (a, b) => parseDate(b.createdAt).getTime() - parseDate(a.createdAt).getTime()
+  );
+}
+
+function getHistoryToneStyle(tone: ProjetoTimelineEvent["tone"]) {
+  const styles: Record<ProjetoTimelineEvent["tone"], string> = {
+    project: "bg-blue-50 text-blue-600",
+    demand: "bg-emerald-50 text-emerald-600",
+    status: "bg-amber-50 text-amber-600",
+  };
+
+  return styles[tone];
 }
 
 function buildRadarItems(demandas: DemandaDetalhada[]) {
