@@ -117,7 +117,7 @@ export function Dashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [competenceFilter, setCompetenceFilter] = useState("");
   const [periodFilterOpen, setPeriodFilterOpen] = useState(false);
-  const portfolioRef = useRef<HTMLElement | null>(null);
+  const portfolioRef = useRef<HTMLDivElement | null>(null);
 
   const carregarDados = useCallback(async () => {
     setLoading(true);
@@ -669,9 +669,26 @@ export function Dashboard() {
           <AttentionPanel items={attentionItems} />
         </ChartCard>
 
+        <div ref={portfolioRef}>
+          <ChartCard
+            title={isExecutiveView ? "Carteira de Projetos" : "Projetos do setor"}
+            action={
+              <button className="text-sm font-semibold text-blue-600">
+                Ver todos
+              </button>
+            }
+          >
+            <ProjectPortfolioList
+              projetos={projetosFiltrados.slice(0, 4)}
+              total={projetosFiltrados.length}
+              searchTerm={searchTerm}
+              onSearchTermChange={setSearchTerm}
+            />
+          </ChartCard>
+        </div>
+
         <ChartCard
           title="Planejado x Realizado"
-          className="xl:col-span-2"
           action={
             <button className="text-sm font-semibold text-blue-600">
               Ver detalhes
@@ -680,69 +697,6 @@ export function Dashboard() {
         >
           <PlannedVsRealizedChart items={plannedVsRealizedItems} />
         </ChartCard>
-      </section>
-
-      <section
-        ref={portfolioRef}
-        className="rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-      >
-        <div className="flex items-center justify-between gap-4 border-b border-slate-200 p-4">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-950">
-              {isExecutiveView ? "Carteira de Projetos" : "Projetos do setor"}
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Acompanhe o andamento dos principais projetos ativos.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex h-10 min-w-64 items-center gap-3 rounded-xl border border-slate-200 px-3 text-sm text-slate-500">
-              <Search size={16} />
-              <input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                className="w-full bg-transparent outline-none placeholder:text-slate-400"
-                placeholder="Buscar projeto..."
-              />
-            </label>
-
-            <Link
-              to="/novo-projeto"
-              className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-blue-600"
-            >
-              <Plus size={16} />
-              Novo Projeto
-            </Link>
-          </div>
-        </div>
-
-        <div className="grid gap-3 p-4 lg:grid-cols-2">
-          {projetosFiltrados.slice(0, 6).map((projeto, index) => (
-            <ProjectPortfolioCard
-              key={projeto.id}
-              projeto={projeto}
-              fallbackCode={`PRJ${String(index + 1).padStart(3, "0")}`}
-            />
-          ))}
-
-          {projetosFiltrados.length === 0 && (
-            <p className="rounded-xl border border-dashed border-slate-200 p-6 text-sm text-slate-500 lg:col-span-2">
-              Nenhum projeto encontrado.
-            </p>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4 text-sm text-slate-500">
-          <span>
-            Exibindo {Math.min(projetosFiltrados.length, 6)} de{" "}
-            {projetosFiltrados.length} projetos
-          </span>
-
-          <button className="font-semibold text-blue-600">
-            Ver todos os projetos
-          </button>
-        </div>
       </section>
     </div>
   );
@@ -799,102 +753,98 @@ function KpiCard({
   );
 }
 
-function ProjectPortfolioCard({
-  projeto,
-  fallbackCode,
+function ProjectPortfolioList({
+  projetos,
+  total,
+  searchTerm,
+  onSearchTermChange,
 }: {
-  projeto: ProjetoComMetricas;
-  fallbackCode: string;
+  projetos: ProjetoComMetricas[];
+  total: number;
+  searchTerm: string;
+  onSearchTermChange: (value: string) => void;
 }) {
+  return (
+    <div className="mt-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 px-3 text-sm text-slate-500">
+          <Search size={16} />
+          <input
+            value={searchTerm}
+            onChange={(event) => onSearchTermChange(event.target.value)}
+            className="w-full bg-transparent outline-none placeholder:text-slate-400"
+            placeholder="Buscar projeto..."
+          />
+        </label>
+
+        <Link
+          to="/novo-projeto"
+          className="flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-blue-600"
+        >
+          <Plus size={16} />
+          Novo Projeto
+        </Link>
+      </div>
+
+      <div className="mt-4 divide-y divide-slate-100">
+        {projetos.map((projeto) => (
+          <ProjectPortfolioRow key={projeto.id} projeto={projeto} />
+        ))}
+      </div>
+
+      {projetos.length === 0 && (
+        <p className="mt-4 rounded-xl border border-dashed border-slate-200 p-5 text-sm text-slate-500">
+          Nenhum projeto encontrado.
+        </p>
+      )}
+
+      <p className="mt-4 text-xs font-medium text-slate-500">
+        Exibindo {Math.min(projetos.length, 4)} de {total} projetos
+      </p>
+    </div>
+  );
+}
+
+function ProjectPortfolioRow({ projeto }: { projeto: ProjetoComMetricas }) {
   const status = formatProjectStatus(projeto.status, projeto.demandasAtivas);
-  const realizedPercent = percent(projeto.horasRealizadas, projeto.horasEstimadas);
 
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <Link
-            to={`/projetos/${projeto.id}`}
-            className="block truncate text-base font-semibold text-slate-950 hover:text-blue-600"
-          >
+    <Link
+      to={`/projetos/${projeto.id}`}
+      className="grid gap-3 py-3 hover:bg-slate-50/70 sm:grid-cols-[1fr_120px_110px] sm:items-center"
+    >
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="truncate text-sm font-semibold text-slate-950">
             {projeto.nome}
-          </Link>
-          <p className="mt-1 text-xs font-medium text-slate-500">
-            {projeto.codigo ?? fallbackCode} · {projeto.clienteNome}
           </p>
+          <AreaBadge area={projeto.areaPrincipal} />
         </div>
-
-        <ProjectStatusBadge status={status} />
+        <p className="mt-1 truncate text-xs font-medium text-slate-500">
+          {projeto.clienteNome} · {projeto.responsavel}
+        </p>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <AreaBadge area={projeto.areaPrincipal} />
-        <span className="rounded-lg bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-          {projeto.demandasAtivas} ativa(s)
-        </span>
-        {projeto.demandasAtrasadas > 0 && (
-          <span className="rounded-lg bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
-            {projeto.demandasAtrasadas} atrasada(s)
-          </span>
-        )}
-      </div>
-
-      <div className="mt-5">
-        <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-500">
+      <div>
+        <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-500">
           <span>Progresso</span>
           <span>{projeto.progresso}%</span>
         </div>
-        <div className="h-2 rounded-full bg-slate-100">
+        <div className="h-1.5 rounded-full bg-slate-100">
           <div
-            className="h-2 rounded-full bg-blue-600"
+            className="h-1.5 rounded-full bg-blue-600"
             style={{ width: `${projeto.progresso}%` }}
           />
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-3">
-        <ProjectCardMetric
-          label="Horas"
-          value={`${projeto.horasRealizadas}h / ${projeto.horasEstimadas}h`}
-          helper={`${realizedPercent}% realizado`}
-        />
-        <ProjectCardMetric
-          label="Prazo"
-          value={<DeadlineCell value={projeto.prazoMaisProximo} />}
-        />
-        <ProjectCardMetric label="Responsável" value={projeto.responsavel} />
+      <div className="flex items-center justify-between gap-3 sm:block sm:text-right">
+        <ProjectStatusBadge status={status} />
+        <div className="mt-0 sm:mt-2">
+          <DeadlineCell value={projeto.prazoMaisProximo} compact />
+        </div>
       </div>
-
-      <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
-        <p className="text-xs font-medium text-slate-500">
-          {projeto.demandas} demanda(s) vinculada(s)
-        </p>
-        <Link
-          to={`/projetos/${projeto.id}`}
-          className="text-sm font-semibold text-blue-600 hover:text-blue-700"
-        >
-          Ver detalhes
-        </Link>
-      </div>
-    </article>
-  );
-}
-
-function ProjectCardMetric({
-  label,
-  value,
-  helper,
-}: {
-  label: string;
-  value: ReactNode;
-  helper?: string;
-}) {
-  return (
-    <div className="min-w-0">
-      <p className="text-xs font-bold uppercase text-slate-400">{label}</p>
-      <div className="mt-1 text-sm font-semibold text-slate-800">{value}</div>
-      {helper && <p className="mt-1 text-xs text-slate-500">{helper}</p>}
-    </div>
+    </Link>
   );
 }
 
@@ -1189,7 +1139,13 @@ function ProjectStatusBadge({ status }: { status: string }) {
   );
 }
 
-function DeadlineCell({ value }: { value: string | null }) {
+function DeadlineCell({
+  value,
+  compact = false,
+}: {
+  value: string | null;
+  compact?: boolean;
+}) {
   if (!value) {
     return <span className="text-slate-500">-</span>;
   }
@@ -1199,8 +1155,14 @@ function DeadlineCell({ value }: { value: string | null }) {
 
   return (
     <div>
-      <p className="font-medium text-slate-700">{formatDate(value)}</p>
-      <p className={`mt-1 text-xs ${late ? "text-red-600" : "text-slate-500"}`}>
+      <p className={`${compact ? "text-xs" : ""} font-medium text-slate-700`}>
+        {formatDate(value)}
+      </p>
+      <p
+        className={`${compact ? "mt-0.5" : "mt-1"} text-xs ${
+          late ? "text-red-600" : "text-slate-500"
+        }`}
+      >
         {late ? `${Math.abs(days)} dia(s) em atraso` : `${days} dia(s)`}
       </p>
     </div>
