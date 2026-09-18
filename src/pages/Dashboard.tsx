@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Calendar,
+  CheckCircle2,
   Clock3,
   Download,
   FileText,
@@ -10,6 +12,7 @@ import {
   MoreVertical,
   Plus,
   Search,
+  Timer,
   TrendingUp,
 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -50,6 +53,13 @@ type WorkloadItem = {
   label: string;
   planned: number;
   realized: number;
+};
+
+type AttentionItem = {
+  title: string;
+  description: string;
+  tone: "danger" | "warning" | "info" | "success";
+  icon: ReactNode;
 };
 
 const areaLabels: Record<string, string> = {
@@ -387,29 +397,6 @@ export function Dashboard() {
       color: areaColors[index % areaColors.length],
     }));
 
-  const statusChartItems = [
-    {
-      label: "Em andamento",
-      value: emAndamento,
-      color: "#2563eb",
-    },
-    {
-      label: "Pendentes",
-      value: pendentes,
-      color: "#f59e0b",
-    },
-    {
-      label: "Bloqueadas",
-      value: bloqueadas,
-      color: "#ef4444",
-    },
-    {
-      label: "Concluídas",
-      value: concluidas,
-      color: "#22c55e",
-    },
-  ].filter((item) => item.value > 0);
-
   const plannedVsRealizedItems = Array.from(
     demandasNoPeriodo.reduce<Map<string, WorkloadItem>>((totals, demanda) => {
       const key = isExecutiveView
@@ -434,6 +421,43 @@ export function Dashboard() {
     .filter((item) => item.planned > 0 || item.realized > 0)
     .sort((a, b) => b.planned - a.planned)
     .slice(0, 6);
+
+  const projetosComPrazoProximo = projetosComMetricas.filter(
+    (projeto) =>
+      ["ATIVO", "planejado", "em andamento"].includes(projeto.status) &&
+      projeto.prazoMaisProximo &&
+      daysUntil(projeto.prazoMaisProximo) >= 0 &&
+      daysUntil(projeto.prazoMaisProximo) <= 7
+  ).length;
+
+  const attentionItems: AttentionItem[] = [];
+
+  if (demandasAtrasadas > 0) {
+    attentionItems.push({
+      title: `${demandasAtrasadas} demanda(s) atrasada(s)`,
+      description: "Demandas abertas com prazo vencido no período.",
+      tone: "danger",
+      icon: <AlertTriangle size={18} />,
+    });
+  }
+
+  if (bloqueadas > 0) {
+    attentionItems.push({
+      title: `${bloqueadas} demanda(s) bloqueada(s)`,
+      description: "Itens dependem de desbloqueio ou decisão para avançar.",
+      tone: "warning",
+      icon: <AlertTriangle size={18} />,
+    });
+  }
+
+  if (projetosComPrazoProximo > 0) {
+    attentionItems.push({
+      title: `${projetosComPrazoProximo} projeto(s) com prazo próximo`,
+      description: "Projetos ativos com vencimento nos próximos 7 dias.",
+      tone: "info",
+      icon: <Timer size={18} />,
+    });
+  }
 
   function exportarRelatorio() {
     const header = [
@@ -628,13 +652,8 @@ export function Dashboard() {
           />
         </ChartCard>
 
-        <ChartCard title="Status das Demandas">
-          <DonutChart
-            total={totalDemandas}
-            totalLabel="Total"
-            centerValue={String(totalDemandas)}
-            items={statusChartItems}
-          />
+        <ChartCard title="Painel de Atenção">
+          <AttentionPanel items={attentionItems} />
         </ChartCard>
 
         <ChartCard
@@ -920,6 +939,81 @@ function DonutChart({
     </div>
   );
 }
+
+function AttentionPanel({ items }: { items: AttentionItem[] }) {
+  if (items.length === 0) {
+    return (
+      <div className="mt-5 flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-600">
+          <CheckCircle2 size={18} />
+        </span>
+        <div>
+          <p className="text-sm font-semibold text-emerald-800">
+            Nenhum ponto crítico no período
+          </p>
+          <p className="mt-1 text-xs font-medium text-emerald-700">
+            Não há atrasos, bloqueios ou prazos próximos para acompanhar agora.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-5 space-y-3">
+      {items.map((item) => {
+        const style = attentionStyles[item.tone];
+
+        return (
+          <div
+            key={item.title}
+            className={`flex items-start gap-3 rounded-xl border p-3.5 ${style.container}`}
+          >
+            <span
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${style.icon}`}
+            >
+              {item.icon}
+            </span>
+            <div className="min-w-0">
+              <p className={`text-sm font-semibold ${style.title}`}>
+                {item.title}
+              </p>
+              <p className="mt-1 text-xs font-medium text-slate-500">
+                {item.description}
+              </p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const attentionStyles: Record<
+  AttentionItem["tone"],
+  { container: string; icon: string; title: string }
+> = {
+  danger: {
+    container: "border-red-100 bg-red-50/70",
+    icon: "bg-white text-red-600",
+    title: "text-red-800",
+  },
+  warning: {
+    container: "border-amber-100 bg-amber-50/70",
+    icon: "bg-white text-amber-600",
+    title: "text-amber-800",
+  },
+  info: {
+    container: "border-blue-100 bg-blue-50/70",
+    icon: "bg-white text-blue-600",
+    title: "text-blue-800",
+  },
+  success: {
+    container: "border-emerald-100 bg-emerald-50/70",
+    icon: "bg-white text-emerald-600",
+    title: "text-emerald-800",
+  },
+};
 
 function PlannedVsRealizedChart({ items }: { items: WorkloadItem[] }) {
   const maxHours = Math.max(
