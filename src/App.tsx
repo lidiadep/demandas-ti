@@ -8,9 +8,10 @@ import { Kanban } from "./pages/Kanban";
 import { ProjetoDetalhes } from "./pages/ProjetoDetalhes";
 import { NovoProjeto } from "./pages/NovoProjeto";
 import { DemandaDetalhes } from "./pages/DemandaDetalhes";
+import { Administracao } from "./pages/Administracao";
 import { ProtectedRoute } from "./routes/ProtectedRoute";
 import { isSupabaseConfigured, missingSupabaseEnvVars } from "./lib/supabase";
-import { managementRoles } from "./utils/roles";
+import { adminRoles, managementRoles } from "./utils/roles";
 
 export default function App() {
   if (!isSupabaseConfigured) {
@@ -33,6 +34,10 @@ export default function App() {
               <Route path="/novo-projeto" element={<NovoProjeto />} />
               <Route path="/projetos/:id" element={<ProjetoDetalhes />} />
               <Route path="/kanban" element={<Kanban />} />
+            </Route>
+
+            <Route element={<ProtectedRoute allowedRoles={adminRoles} />}>
+              <Route path="/administracao" element={<Administracao />} />
             </Route>
 
             <Route element={<ProtectedRoute allowedRoles={["COLABORADOR"]} />}>

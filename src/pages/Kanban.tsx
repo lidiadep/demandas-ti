@@ -1040,6 +1040,7 @@ function GestorDemandModal({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const [newResponsibleOpen, setNewResponsibleOpen] = useState(false);
   const tiposDaCategoria = tipos.filter(
     (tipo) => tipo.ativo && (!form.areaId || tipo.area_id === form.areaId)
   );
@@ -1219,17 +1220,37 @@ function GestorDemandModal({
           </label>
 
           <fieldset className="rounded-xl border border-slate-200 p-4">
-            <legend className="px-1 text-sm font-semibold text-slate-700">
-              Responsáveis *
-            </legend>
-            <div className="mt-3 grid max-h-44 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">
+                  Responsáveis *
+                </p>
+                <p className="mt-1 text-xs font-medium text-slate-500">
+                  Selecione quem já tem acesso ativo à plataforma.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNewResponsibleOpen((current) => !current)}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100"
+              >
+                <Plus size={14} />
+                Novo responsável
+              </button>
+            </div>
+
+            <div className="mt-4 grid max-h-56 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
               {colaboradores.map((colaborador) => {
                 const checked = form.colaboradorIds.includes(colaborador.id);
 
                 return (
                   <label
                     key={colaborador.id}
-                    className="flex items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-sm transition ${
+                      checked
+                        ? "border-blue-300 bg-blue-50 text-blue-900 shadow-sm"
+                        : "border-slate-100 bg-white text-slate-700 hover:border-slate-200 hover:bg-slate-50"
+                    }`}
                   >
                     <input
                       type="checkbox"
@@ -1244,9 +1265,25 @@ function GestorDemandModal({
                               ),
                         })
                       }
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                      className="sr-only"
                     />
-                    {colaborador.nome}
+                    <Avatar name={colaborador.nome} src={colaborador.avatar_url ?? null} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold">
+                        {colaborador.nome}
+                      </span>
+                      {colaborador.email && (
+                        <span className="block truncate text-xs font-medium text-slate-500">
+                          {colaborador.email}
+                        </span>
+                      )}
+                      <span className="mt-1 inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                        Acesso ativo
+                      </span>
+                    </span>
+                    <span className="text-xs font-bold text-blue-700">
+                      {checked ? "Selecionado" : "Selecionar"}
+                    </span>
                   </label>
                 );
               })}
@@ -1255,6 +1292,18 @@ function GestorDemandModal({
               <p className="mt-3 text-sm font-medium text-slate-500">
                 Nenhum colaborador ativo encontrado.
               </p>
+            )}
+            {newResponsibleOpen && (
+              <div className="mt-4 rounded-xl border border-dashed border-blue-200 bg-blue-50 px-4 py-3">
+                <p className="text-sm font-bold text-blue-900">
+                  Novo responsável ainda sem acesso
+                </p>
+                <p className="mt-1 text-xs font-medium leading-5 text-blue-700">
+                  Esta opção será usada para convidar alguém novo por nome e e-mail.
+                  Até ativarmos o convite seguro pelo Supabase, cadastre ou ative o
+                  colaborador primeiro; depois ele aparecerá como opção acima.
+                </p>
+              </div>
             )}
           </fieldset>
 

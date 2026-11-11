@@ -8,6 +8,7 @@ export const managementRoles: Role[] = [
 ];
 
 export const executiveRoles: Role[] = ["DIRETOR", "ADMIN", "SUPERADMIN"];
+export const adminRoles: Role[] = ["ADMIN", "SUPERADMIN"];
 
 export function normalizeRole(role?: string | null): Role | null {
   const normalized = role?.trim().toUpperCase() as Role | undefined;
@@ -38,6 +39,12 @@ export function isExecutiveRole(role?: string | null) {
   const normalized = normalizeRole(role);
 
   return normalized ? executiveRoles.includes(normalized) : false;
+}
+
+export function isAdminRole(role?: string | null) {
+  const normalized = normalizeRole(role);
+
+  return normalized ? adminRoles.includes(normalized) : false;
 }
 
 export function isExecutiveProfile(profile?: {

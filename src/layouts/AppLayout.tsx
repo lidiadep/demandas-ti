@@ -5,13 +5,14 @@ import {
   type LucideIcon,
   LogOut,
   PlusCircle,
+  ShieldCheck,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import fortTechSidebarLogo from "../assets/forttech-sidebar-logo.jpg";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
-import { getRoleLabel } from "../utils/roles";
+import { getRoleLabel, isAdminRole } from "../utils/roles";
 
 type NavLinkItem = {
   to: string;
@@ -89,6 +90,14 @@ export function AppLayout() {
     },
     { to: "/kanban", label: "Analítico", icon: BarChart3 },
   ];
+
+  if (isAdminRole(profile?.role)) {
+    gestorLinks.push({
+      to: "/administracao",
+      label: "Administração",
+      icon: ShieldCheck,
+    });
+  }
 
   const colaboradorLinks: NavLinkItem[] = [
     {
